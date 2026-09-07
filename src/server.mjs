@@ -23,13 +23,15 @@ const PC_NAME = process.env.PC_REMOTE_NAME || os.hostname();
 const GUACAMOLE_ORIGIN = new URL(process.env.GUACAMOLE_ORIGIN || 'http://127.0.0.1:8080');
 const ALLOW_POWER_CONTROLS = String(process.env.ALLOW_POWER_CONTROLS || 'false').toLowerCase() === 'true';
 const DEMO_STATE = process.env.PC_REMOTE_DEMO_STATE || '';
+const AUDIO_DESTINATIONS = new Set(['desktop', 'mobile', 'both', 'muted']);
+const AUDIO_ACTIVE_MODES = new Set(['desktop', 'browser', 'none']);
 
 await fs.mkdir(RUNTIME_DIR, { recursive: true });
 
 const clients = new Set();
 let lastStatusJson = '';
 let cpuPrevious = sampleCpu();
-let runtimeState = await readRuntimeState();
+let runtimeState = normalizeRuntimeState(await readRuntimeState());
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -59,8 +61,23 @@ const server = http.createServer(async (req, res) => {
         pcName: PC_NAME,
         powerControlsEnabled: ALLOW_POWER_CONTROLS,
         desktop: { enabled: true, path: '/guacamole/' },
-        browser: { enabled: false, phase: 'browser-engine-next' }
+        browser: { enabled: false, phase: 'browser-engine-next' },
+        audio: {
+          destinations: ['desktop', 'mobile', 'both', 'muted'],
+          defaultDestination: 'mobile',
+          routingApplied: false
+        }
       });
+    }
+
+    if (url.pathname === '/api/audio' && req.method === 'GET') {
+      return sendJson(res, 200, getAudioState());
+    }
+
+    if (url.pathname === '/api/audio' && req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      const result = await updateAudioState(body);
+      return sendJson(res, result.ok ? 200 : 400, result);
     }
 
     if (url.pathname === '/api/events' && req.method === 'GET') {
@@ -169,6 +186,66 @@ async function getStatus() {
     detector: process.platform === 'win32' ? 'Windows LogonUI process' : (demo ? 'demo override' : 'non-Windows development fallback'),
     powerControlsEnabled: ALLOW_POWER_CONTROLS
   };
+}
+
+function getAudioState() {
+  const audio = runtimeState.audio;
+  const effectiveDestination = audio.activeMode === 'desktop'
+    ? audio.desktopMode
+    : audio.activeMode === 'browser'
+      ? audio.browserMode
+      : null;
+
+  return {
+    desktopMode: audio.desktopMode,
+    browserMode: audio.browserMode,
+    activeMode: audio.activeMode,
+    effectiveDestination,
+    routingApplied: false,
+    transportPhase: 'policy-ready'
+  };
+}
+
+async function updateAudioState(body) {
+  if (!body || typeof body !== 'object') return { ok: false, error: 'JSON body required.' };
+
+  if (body.activeMode != null) {
+    if (!AUDIO_ACTIVE_MODES.has(body.activeMode)) {
+      return { ok: false, error: 'activeMode must be desktop, browser, or none.' };
+    }
+    runtimeState.audio.activeMode = body.activeMode;
+  }
+
+  if (body.mode != null || body.destination != null) {
+    if (!['desktop', 'browser'].includes(body.mode)) {
+      return { ok: false, error: 'mode must be desktop or browser.' };
+    }
+    if (!AUDIO_DESTINATIONS.has(body.destination)) {
+      return { ok: false, error: 'destination must be desktop, mobile, both, or muted.' };
+    }
+    runtimeState.audio[body.mode === 'desktop' ? 'desktopMode' : 'browserMode'] = body.destination;
+  }
+
+  await writeRuntimeState(runtimeState);
+  const state = getAudioState();
+  broadcast('audio', state);
+  return { ok: true, ...state };
+}
+
+async function readJsonBody(req, maxBytes = 16 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error('Request body too large.');
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new Error('Invalid JSON body.');
+  }
 }
 
 async function detectWindowsLocked() {
@@ -328,11 +405,25 @@ function normalizeDemoState(value) {
   return ['offline', 'asleep', 'onlineUnlocked', 'onlineLocked'].includes(value) ? value : '';
 }
 
+function normalizeRuntimeState(value = {}) {
+  return {
+    lastPowerIntent: value.lastPowerIntent ?? null,
+    lastPowerIntentAt: value.lastPowerIntentAt ?? null,
+    lastSeenAt: value.lastSeenAt ?? null,
+    lastKnownState: value.lastKnownState ?? null,
+    audio: {
+      desktopMode: AUDIO_DESTINATIONS.has(value.audio?.desktopMode) ? value.audio.desktopMode : 'mobile',
+      browserMode: AUDIO_DESTINATIONS.has(value.audio?.browserMode) ? value.audio.browserMode : 'mobile',
+      activeMode: AUDIO_ACTIVE_MODES.has(value.audio?.activeMode) ? value.audio.activeMode : 'none'
+    }
+  };
+}
+
 async function readRuntimeState() {
   try {
     return JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
   } catch {
-    return { lastPowerIntent: null, lastPowerIntentAt: null, lastSeenAt: null, lastKnownState: null };
+    return { lastPowerIntent: null, lastPowerIntentAt: null, lastSeenAt: null, lastKnownState: null, audio: { desktopMode: 'mobile', browserMode: 'mobile', activeMode: 'none' } };
   }
 }
 
