@@ -6,5 +6,6 @@ node_modules/
 Thumbs.db
 docker/initdb.sql
 bin/
+public/update-result.json
 native/audio-router/x64/
 native/audio-router/.vs/
