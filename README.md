@@ -1,46 +1,43 @@
-# Mini Remote Desktop (MRD) — V0.1 Foundation
+# Mini Remote Desktop (MRD) — v0.1.2
 
 Private, Tailscale-only Progressive Web App for controlling and remotely using a Windows 11 Pro PC from an iPhone.
 
-## V0.1 scope
-
-Implemented in the repository now:
+## Implemented now
 
 - Installable iPhone PWA with no TestFlight/App Store dependency.
-- Canonical four-state UI model:
+- Canonical four-state PC status model:
   - **Grey** — Offline
   - **Yellow** — Asleep
   - **Blue** — Online · Unlocked
   - **Green** — Online · Locked
-- Dashboard shell for CPU, RAM, uptime, latency, PC controls, Desktop, and Browser.
-- Server-Sent Events status channel.
+- Live Windows lock-state detection, CPU, RAM, uptime, and SSE updates.
+- Guarded Lock / Sleep / Restart / Shutdown host controls.
 - Tailscale Serve setup.
-- Apache Guacamole 1.6.0 + `guacd` + PostgreSQL Docker foundation for HTML5 RDP.
-- Windows RDP enablement script.
+- Apache Guacamole 1.6.0 + `guacd` + PostgreSQL for HTML5 RDP.
+- Guacamole HTTP and WebSocket proxying through the MRD origin.
 - Browser/media-first mobile interface shell.
+- Four-mode audio policy: **Desktop / Mobile / Both / Muted**.
+- Native Windows MRD Audio Router transport with a private WebSocket PCM path to the PWA.
 - PWA service worker, manifest, and Home Screen icon.
 
-### Repository baseline limitation
-
-The current `src/server.mjs` is deliberately a safe baseline. It serves the PWA and status channel, but **does not yet execute Windows power actions or proxy the Guacamole/RDP transport**. The UI keeps those actions disabled. Those host-side integrations are the next local implementation step after the baseline is installed and verified on the target PC.
-
-The Docker Guacamole stack and RDP setup scripts are already included so that integration can be wired against the real Windows 11 Pro host rather than mocked.
-
-## Target architecture
+## Architecture
 
 ```text
 iPhone PWA
    |
-   | HTTPS / Tailscale Serve
+   | HTTPS / WSS over Tailscale Serve
    v
 MRD Host (127.0.0.1:8787)
    |-- live PC status + controls
+   |-- audio policy + MRD Audio Router
+   |       |-- Windows process-loopback capture
+   |       `-- /api/audio/stream -> iPhone Web Audio
    |-- HTML5 Desktop
    |       |
    |       v
    |   Apache Guacamole -> guacd -> RDP -> Windows 11 Pro
    |
-   `-- Browser / Media -> Chromium on the PC
+   `-- Browser / Media -> Chromium on the PC (next major milestone)
 ```
 
 ## Requirements
@@ -60,7 +57,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\enable-rdp.ps1
 ```
 
-Then confirm **Settings > System > Remote Desktop** reports **On**.
+Confirm **Settings > System > Remote Desktop** reports **On**.
 
 ## 2. Start Guacamole
 
@@ -87,12 +84,30 @@ Create an RDP connection with:
 
 The Guacamole container binds to `127.0.0.1:8080`; `guacd` is not published externally.
 
-## 3. Start MRD
+## 3. Install the MRD Audio Router
+
+The Windows x64 helper is built from the repository source by GitHub Actions and published as the rolling `audio-router-latest` release. The setup script verifies its SHA-256 checksum before installation.
 
 ```powershell
-Copy-Item .env.example .env
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\setup-audio-router.ps1
+```
+
+Default install location:
+
+```text
+bin\mrd-audio-router.exe
+```
+
+See `docs/AUDIO_ROUTER_SETUP.md` for the validation procedure and implementation notes.
+
+## 4. Start MRD
+
+```powershell
 .\scripts\start.ps1
 ```
+
+If `.env` does not exist, the script creates it from `.env.example`. If required Node packages are missing, it runs `npm install` automatically.
 
 MRD listens at:
 
@@ -100,7 +115,7 @@ MRD listens at:
 http://127.0.0.1:8787
 ```
 
-## 4. Publish privately with Tailscale Serve
+## 5. Publish privately with Tailscale Serve
 
 In another PowerShell window:
 
@@ -117,7 +132,7 @@ https://your-pc.your-tailnet.ts.net
 
 Use **Tailscale Serve**, not Funnel. MRD is intended to remain private to the tailnet.
 
-## 5. Add MRD to the iPhone Home Screen
+## 6. Add MRD to the iPhone Home Screen
 
 1. Connect Tailscale on the iPhone.
 2. Open the Tailscale Serve HTTPS URL in Safari.
@@ -126,16 +141,27 @@ Use **Tailscale Serve**, not Funnel. MRD is intended to remain private to the ta
 5. Enable **Open as Web App** if prompted.
 6. Launch **MRD** from the Home Screen.
 
-## Desktop milestone
+## Desktop
 
-The Desktop surface is already present in the PWA and the Guacamole stack is included. The next host-service pass will connect `/guacamole/` through the MRD origin and then streamline Guacamole into a direct app-controlled RDP session rather than a generic connection picker.
-
-The intended end state is:
+The Desktop surface is embedded inside the PWA and reverse-proxies Guacamole through MRD. The target behavior is:
 
 ```text
 Physical monitors -> genuine Windows lock/sign-in screen
 Phone             -> active HTML5 RDP desktop inside MRD
 ```
+
+## Audio routing
+
+MRD exposes the same four destinations in Desktop and Browser / Media sessions:
+
+- `desktop` — physical PC output only.
+- `mobile` — MRD phone stream only.
+- `both` — physical PC output plus MRD phone stream.
+- `muted` — neither destination.
+
+The selected policies persist separately for Desktop and Browser modes. The native helper uses Windows process-loopback capture and streams 48 kHz, stereo, signed 16-bit PCM through `/api/audio/stream` on the existing private MRD origin.
+
+This transport has compiled successfully in the Windows GitHub Actions build. The four routing modes still require first-machine validation against the target PC's real RDP/audio-driver combination; see `docs/AUDIO_ROUTER_SETUP.md`.
 
 ## Browser / Media milestone
 
@@ -157,7 +183,7 @@ MRD's canonical states are:
 - `onlineUnlocked`
 - `onlineLocked`
 
-The current repository host reports a baseline online state while the Windows-native lock/sleep detector is being integrated. The UI and protocol names are already fixed to the four-state model.
+The Windows host detects the genuine local lock state and reports it to the PWA. Sleep intent is persisted so the phone can distinguish an intentional sleep transition from an unexpected offline state.
 
 ## Security principles
 
@@ -166,8 +192,10 @@ The current repository host reports a baseline online state while the Windows-na
 - Do not port-forward RDP or MRD to the public internet.
 - Guacamole binds only to localhost.
 - `guacd` stays inside the internal Docker network.
-- Generated secrets and runtime state are excluded by `.gitignore`.
-- Power controls remain disabled until the host integration is verified locally.
+- The Audio Router helper has no network listener of its own.
+- Audio streaming stays on the MRD/Tailscale origin.
+- Generated secrets, runtime state, downloaded binaries, and build output are excluded by `.gitignore`.
+- Power controls remain disabled until deliberately enabled in `.env`.
 
 ## Development
 
