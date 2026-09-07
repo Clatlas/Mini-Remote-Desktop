@@ -1,0 +1,7 @@
+.env
+.runtime/
+docker/.env
+node_modules/
+.DS_Store
+Thumbs.db
+docker/initdb.sql
