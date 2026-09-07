@@ -26,6 +26,7 @@ let disconnectTimer = null;
 let pendingAction = null;
 let audioDialogMode = 'desktop';
 let audioState = { desktopMode: 'mobile', browserMode: 'mobile', activeMode: 'none', effectiveDestination: null, routingApplied: false };
+const mobileAudio = { context: null, socket: null, nextTime: 0, format: { sampleRate: 48000, channels: 2 } };
 
 init();
 
@@ -89,6 +90,7 @@ function openAudioDialog(mode) {
 
 async function chooseAudioDestination(destination) {
   if (!audioLabels[destination]) return;
+  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
   try {
     audioState = await fetchJson('/api/audio', {
       method: 'PUT',
@@ -122,9 +124,120 @@ function renderAudioState() {
     btn.setAttribute('aria-selected', String(active));
   });
 
-  app.audioRoutingNote.textContent = audioState.routingApplied
-    ? 'Live audio routing is active for this session.'
-    : 'Routing preference is saved. The Windows audio transport is the next integration step.';
+  if (audioState.router?.lastError) {
+    app.audioRoutingNote.textContent = `Audio Router error: ${audioState.router.lastError}`;
+  } else if (audioState.router?.helperAvailable === false) {
+    app.audioRoutingNote.textContent = 'Routing preference is saved. Install the MRD Audio Router helper to apply it live.';
+  } else {
+    app.audioRoutingNote.textContent = audioState.routingApplied
+      ? 'Live Windows audio routing is active for this session.'
+      : 'Audio Router is ready. Open Desktop or Browser to apply the selected destination.';
+  }
+  syncMobileAudioTransport();
+}
+
+function primeMobileAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  if (!mobileAudio.context) {
+    try {
+      mobileAudio.context = new AudioContextClass({ latencyHint: 'interactive', sampleRate: 48000 });
+    } catch {
+      mobileAudio.context = new AudioContextClass();
+    }
+  }
+  if (mobileAudio.context.state === 'suspended') mobileAudio.context.resume().catch(() => {});
+}
+
+function syncMobileAudioTransport() {
+  const wantsStream = ['mobile', 'both'].includes(audioState.effectiveDestination)
+    && audioState.activeMode !== 'none'
+    && audioState.router?.helperAvailable;
+  if (wantsStream) ensureMobileAudioStream();
+  else stopMobileAudioStream();
+}
+
+function ensureMobileAudioStream() {
+  primeMobileAudio();
+  if (!mobileAudio.context) return;
+  if (mobileAudio.socket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(mobileAudio.socket.readyState)) return;
+
+  const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(`${scheme}//${location.host}/api/audio/stream`);
+  mobileAudio.socket = socket;
+  socket.binaryType = 'arraybuffer';
+
+  socket.addEventListener('message', event => {
+    if (typeof event.data === 'string') {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'format') mobileAudio.format = message;
+        if (message.type === 'error') showToast(message.message);
+      } catch {}
+      return;
+    }
+    queuePcmAudio(event.data);
+  });
+  socket.addEventListener('close', () => {
+    if (mobileAudio.socket === socket) mobileAudio.socket = null;
+  });
+  socket.addEventListener('error', () => {
+    if (mobileAudio.socket === socket) mobileAudio.socket = null;
+  });
+}
+
+function stopMobileAudioStream() {
+  if (mobileAudio.socket) {
+    try { mobileAudio.socket.close(1000, 'Audio destination changed'); } catch {}
+    mobileAudio.socket = null;
+  }
+  mobileAudio.nextTime = 0;
+  if (mobileAudio.context?.state === 'running') mobileAudio.context.suspend().catch(() => {});
+}
+
+function queuePcmAudio(arrayBuffer) {
+  const context = mobileAudio.context;
+  if (!context || context.state !== 'running' || !arrayBuffer?.byteLength) return;
+
+  const sampleRate = Number(mobileAudio.format.sampleRate || 48000);
+  const channels = Number(mobileAudio.format.channels || 2);
+  if (channels !== 2) return;
+
+  const view = new DataView(arrayBuffer);
+  const frames = Math.floor(view.byteLength / 4);
+  if (!frames) return;
+
+  const audioBuffer = context.createBuffer(2, frames, sampleRate);
+  const left = audioBuffer.getChannelData(0);
+  const right = audioBuffer.getChannelData(1);
+  let offset = 0;
+  for (let i = 0; i < frames; i++) {
+    left[i] = view.getInt16(offset, true) / 32768;
+    right[i] = view.getInt16(offset + 2, true) / 32768;
+    offset += 4;
+  }
+
+  const source = context.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(context.destination);
+  const floor = context.currentTime + 0.045;
+  let start = Math.max(floor, mobileAudio.nextTime || floor);
+  if (start - context.currentTime > 0.35) start = floor;
+  source.start(start);
+  mobileAudio.nextTime = start + audioBuffer.duration;
+}
+
+function enforceGuacamoleAudioMute() {
+  if (!audioState.router?.helperAvailable) return;
+  try {
+    const doc = app.desktopFrame.contentDocument;
+    if (!doc) return;
+    const mute = root => root.querySelectorAll?.('audio,video').forEach(media => { media.muted = true; });
+    mute(doc);
+    const observer = new MutationObserver(() => mute(doc));
+    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), 30000);
+  } catch {}
 }
 
 async function refreshStatus() {
@@ -187,14 +300,18 @@ function renderDisconnectedState() {
 
 function openDesktop() {
   openView(app.desktopView);
+  const destination = audioState.desktopMode || 'mobile';
+  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
   void setActiveAudioMode('desktop');
   app.desktopMessage.hidden = false;
-  app.desktopFrame.onload = () => { app.desktopMessage.hidden = true; };
+  app.desktopFrame.onload = () => { app.desktopMessage.hidden = true; enforceGuacamoleAudioMute(); };
   app.desktopFrame.src = (config?.desktop?.path || '/guacamole/');
 }
 
 function openBrowser() {
   openView(app.browserView);
+  const destination = audioState.browserMode || 'mobile';
+  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
   void setActiveAudioMode('browser');
 }
 
@@ -205,6 +322,7 @@ function closeViews() {
   app.desktopFrame.src = 'about:blank';
   document.body.style.overflow = '';
   void setActiveAudioMode('none');
+  stopMobileAudioStream();
 }
 
 function requestPower(action) {
