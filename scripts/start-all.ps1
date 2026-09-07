@@ -4,6 +4,7 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $DockerEnv = Join-Path $Root 'docker\.env'
 $ComposeFile = Join-Path $Root 'docker\compose.guacamole.yml'
 $GuacSetup = Join-Path $Root 'scripts\setup-guacamole.ps1'
+$GuacTune = Join-Path $Root 'scripts\tune-guacamole-connection.ps1'
 $RuntimeDir = Join-Path $Root '.runtime'
 $PidFile = Join-Path $RuntimeDir 'mrd-host.pid'
 $StdoutLog = Join-Path $RuntimeDir 'mrd-host.log'
@@ -143,6 +144,12 @@ if (-not $guacReady) {
     throw 'Guacamole is running in Docker but is not reachable on 127.0.0.1:8080. The diagnostics above identify the failing layer.'
 }
 Write-Host 'Guacamole: ready' -ForegroundColor Green
+
+if (Test-Path $GuacTune) {
+    Write-Step 'Applying MRD Desktop mobile settings'
+    & $GuacTune
+    if ($LASTEXITCODE -ne 0) { throw 'MRD Desktop Guacamole tuning failed.' }
+}
 
 # 3. MRD Node host
 Write-Step 'Starting MRD host'
