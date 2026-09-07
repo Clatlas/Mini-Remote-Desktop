@@ -40,6 +40,8 @@ Write-UpdateResult -State 'running' -Message 'Checking GitHub for MRD updates.'
 Write-UpdateLog 'Remote update requested.'
 
 $pullSucceeded = $false
+$pullError = ''
+$before = ''
 $commit = ''
 $pullOutput = ''
 
@@ -67,15 +69,16 @@ try {
     Write-UpdateLog "Updated commit: $commit"
 }
 catch {
-    $detail = $_.Exception.Message
-    Write-UpdateResult -State 'failed' -Message 'MRD update failed. The current host will be restarted without changing code.' -Commit $commit -Details $detail
-    Write-UpdateLog "Update failed: $detail"
+    $pullError = $_.Exception.Message
+    if (-not $commit) { $commit = $before }
+    Write-UpdateResult -State 'restarting' -Message 'GitHub update did not apply. Restarting the current MRD host to preserve remote access.' -Commit $commit -Details $pullError
+    Write-UpdateLog "Update failed: $pullError"
 }
 
 # Always run the canonical launcher. If git pull failed, this safely restores the
 # current MRD host. If it succeeded, this loads the newly-pulled backend/frontend.
 if (-not (Test-Path $Launcher)) {
-    Write-UpdateResult -State 'failed' -Message 'MRD update could not restart because Start-MRD.cmd was not found.' -Commit $commit -Details $pullOutput
+    Write-UpdateResult -State 'failed' -Message 'MRD update could not restart because Start-MRD.cmd was not found.' -Commit $commit -Details $pullError
     Write-UpdateLog 'Start-MRD.cmd was not found.'
     exit 1
 }
@@ -94,7 +97,7 @@ try {
         Write-UpdateLog 'MRD update and restart completed successfully.'
     }
     else {
-        Write-UpdateResult -State 'failed' -Message 'MRD restarted, but the GitHub update did not apply.' -Commit $commit -Details $pullOutput
+        Write-UpdateResult -State 'failed' -Message 'MRD restarted, but the GitHub update did not apply.' -Commit $commit -Details $pullError
         Write-UpdateLog 'MRD restarted after failed pull.'
     }
 }
