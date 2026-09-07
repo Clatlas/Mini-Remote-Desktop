@@ -29,12 +29,24 @@ services:
       POSTGRESQL_PASSWORD: ${GUAC_DB_PASSWORD}
       REMOTE_IP_VALVE_ENABLED: "true"
     ports:
-      - "127.0.0.1:8080:8080"
-    networks: [mrd-internal]
+      - target: 8080
+        published: "8080"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks:
+      - mrd-internal
+      - mrd-edge
 
 volumes:
   guac-db:
 
 networks:
+  # Private backend network. PostgreSQL and guacd never receive host-facing ports.
   mrd-internal:
     internal: true
+
+  # Frontend bridge used only by the Guacamole web container. The web port is
+  # still bound explicitly to 127.0.0.1, so it is not exposed on LAN/WAN.
+  # This bridge also allows Guacamole to reach host.docker.internal for RDP.
+  mrd-edge:
+    driver: bridge
