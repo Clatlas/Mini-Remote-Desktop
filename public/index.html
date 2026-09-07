@@ -92,7 +92,8 @@
   <section class="view-layer" id="desktopView" hidden>
     <header class="view-toolbar">
       <button class="back-button" data-close-view="desktop">‹</button>
-      <div><strong>Desktop</strong><small>HTML5 RDP</small></div>
+      <div class="view-title"><strong>Desktop</strong><small>HTML5 RDP</small></div>
+      <button class="audio-route-button" id="desktopAudioBtn" data-audio-mode="desktop" aria-label="Desktop audio destination"><span aria-hidden="true">◖</span><strong id="desktopAudioLabel">Mobile</strong></button>
       <button class="toolbar-button" id="desktopReload">↻</button>
     </header>
     <div class="desktop-stage">
@@ -110,6 +111,7 @@
       <form id="browserForm" class="address-form">
         <input id="addressInput" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="Search or enter website" />
       </form>
+      <button class="audio-route-button compact" id="browserAudioBtn" data-audio-mode="browser" aria-label="Browser audio destination"><span aria-hidden="true">◖</span><strong id="browserAudioLabel">Mobile</strong></button>
       <button class="toolbar-button" id="browserMenu">⋯</button>
     </header>
 
@@ -139,6 +141,42 @@
       <button id="mediaModeBtn">▶</button>
     </nav>
   </section>
+
+  <dialog id="audioDialog">
+    <form method="dialog" class="dialog-card audio-dialog-card">
+      <div class="audio-dialog-heading">
+        <div>
+          <div class="eyebrow">AUDIO DESTINATION</div>
+          <h2 id="audioDialogTitle">Desktop audio</h2>
+        </div>
+        <button value="cancel" class="dialog-close" aria-label="Close audio destination">×</button>
+      </div>
+      <p class="audio-dialog-copy">Choose where this MRD session should play sound.</p>
+      <div class="audio-options" role="listbox" aria-label="Audio destination">
+        <button type="button" class="audio-option" data-audio-destination="desktop">
+          <span class="audio-option-icon" aria-hidden="true">▣</span>
+          <span><strong>Desktop</strong><small>PC speakers only</small></span>
+          <span class="audio-check" aria-hidden="true">✓</span>
+        </button>
+        <button type="button" class="audio-option" data-audio-destination="mobile">
+          <span class="audio-option-icon" aria-hidden="true">▯</span>
+          <span><strong>Mobile</strong><small>Phone only</small></span>
+          <span class="audio-check" aria-hidden="true">✓</span>
+        </button>
+        <button type="button" class="audio-option" data-audio-destination="both">
+          <span class="audio-option-icon" aria-hidden="true">◫</span>
+          <span><strong>Both</strong><small>PC and phone</small></span>
+          <span class="audio-check" aria-hidden="true">✓</span>
+        </button>
+        <button type="button" class="audio-option" data-audio-destination="muted">
+          <span class="audio-option-icon" aria-hidden="true">⊘</span>
+          <span><strong>Muted</strong><small>No audio output</small></span>
+          <span class="audio-check" aria-hidden="true">✓</span>
+        </button>
+      </div>
+      <p class="audio-routing-note" id="audioRoutingNote">MRD is saving this routing policy now. Live audio transport wiring is the next host integration step.</p>
+    </form>
+  </dialog>
 
   <dialog id="confirmDialog">
     <form method="dialog" class="dialog-card">
