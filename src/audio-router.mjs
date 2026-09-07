@@ -15,6 +15,7 @@ export class AudioRouter {
     this.baselineMuted = null;
     this.lastError = null;
     this.appliedDestination = null;
+    this.captureEnabled = false;
     this.remainder = Buffer.alloc(0);
     this.wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
     this.wss.on('connection', ws => {
@@ -37,6 +38,7 @@ export class AudioRouter {
       routingApplied: this.available && this.lastError == null && this.appliedDestination != null,
       appliedDestination: this.appliedDestination,
       streaming: Boolean(this.capture),
+      captureEnabled: this.captureEnabled,
       clients: this.wss.clients.size,
       lastError: this.lastError,
       format: { codec: 'pcm_s16le', sampleRate: 48000, channels: 2 }
@@ -47,8 +49,9 @@ export class AudioRouter {
     this.wss.handleUpgrade(req, socket, head, ws => this.wss.emit('connection', ws, req));
   }
 
-  async apply(destination) {
+  async apply(destination, { capture = true } = {}) {
     this.lastError = null;
+    this.captureEnabled = Boolean(capture);
     if (!this.available) {
       this.stopCapture();
       this.appliedDestination = null;
@@ -61,6 +64,7 @@ export class AudioRouter {
         if (this.baselineMuted != null) await this.setMuted(this.baselineMuted);
         this.baselineMuted = null;
         this.appliedDestination = null;
+        this.captureEnabled = false;
         return this.status;
       }
 
@@ -70,10 +74,10 @@ export class AudioRouter {
         this.stopCapture();
         await this.setMuted(false);
       } else if (destination === 'mobile') {
-        this.startCapture();
+        if (capture) this.startCapture(); else this.stopCapture();
         await this.setMuted(true);
       } else if (destination === 'both') {
-        this.startCapture();
+        if (capture) this.startCapture(); else this.stopCapture();
         await this.setMuted(false);
       } else if (destination === 'muted') {
         this.stopCapture();
@@ -98,6 +102,7 @@ export class AudioRouter {
     }
     this.baselineMuted = null;
     this.appliedDestination = null;
+    this.captureEnabled = false;
     for (const ws of this.wss.clients) {
       try { ws.close(1001, 'MRD shutting down'); } catch {}
     }
