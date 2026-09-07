@@ -1,5 +1,6 @@
+import fssync from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -78,6 +79,8 @@ export function getAppCatalog() {
 }
 
 export async function launchWindowsApp(id) {
+  if (id === 'update-mrd') return launchMrdUpdater();
+
   const app = APPS.find(item => item.id === id);
   if (!app) return { ok: false, error: 'Unknown app.' };
   if (app.kind === 'panel') return { ok: true, app, panel: 'mrd-admin' };
@@ -94,6 +97,29 @@ export async function launchWindowsApp(id) {
   } catch (error) {
     const detail = String(error.stderr || error.stdout || error.message || '').trim();
     return { ok: false, error: detail || `Could not launch ${app.name}.` };
+  }
+}
+
+function launchMrdUpdater() {
+  if (process.platform !== 'win32') return { ok: false, error: 'MRD remote update is Windows-only.' };
+
+  const root = path.resolve(process.cwd());
+  const script = path.join(root, 'scripts', 'update-mrd.ps1');
+  if (!fssync.existsSync(script)) return { ok: false, error: 'scripts/update-mrd.ps1 was not found.' };
+
+  try {
+    const child = spawn('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script
+    ], {
+      cwd: root,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    child.unref();
+    return { ok: true, action: 'update-mrd', reconnectInSeconds: 15 };
+  } catch (error) {
+    return { ok: false, error: error.message || 'Could not start the MRD updater.' };
   }
 }
 
