@@ -2,7 +2,9 @@ services:
   guacd:
     image: guacamole/guacd:1.6.0
     restart: unless-stopped
-    networks: [mrd-internal]
+    networks:
+      - mrd-internal
+      - mrd-edge
 
   postgres:
     image: postgres:17-alpine
@@ -41,12 +43,12 @@ volumes:
   guac-db:
 
 networks:
-  # Private backend network. PostgreSQL and guacd never receive host-facing ports.
+  # Private backend network. PostgreSQL remains isolated from host/LAN access.
   mrd-internal:
     internal: true
 
-  # Frontend bridge used only by the Guacamole web container. The web port is
-  # still bound explicitly to 127.0.0.1, so it is not exposed on LAN/WAN.
-  # This bridge also allows Guacamole to reach host.docker.internal for RDP.
+  # Host-access bridge for the Guacamole frontend and guacd. Neither service
+  # publishes guacd's port; this network only lets guacd reach
+  # host.docker.internal:3389 and lets the Guacamole web UI bind localhost:8080.
   mrd-edge:
     driver: bridge
