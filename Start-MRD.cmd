@@ -19,6 +19,7 @@ if errorlevel 1 goto :fail
 
 echo.
 echo MRD startup completed successfully.
+if "%MRD_NONINTERACTIVE%"=="1" exit /b 0
 timeout /t 5 >nul
 exit /b 0
 
@@ -26,5 +27,6 @@ exit /b 0
 echo.
 echo MRD startup failed. Review the error above.
 echo.
+if "%MRD_NONINTERACTIVE%"=="1" exit /b 1
 pause
 exit /b 1
