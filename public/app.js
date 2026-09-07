@@ -26,6 +26,7 @@ let disconnectTimer = null;
 let pendingAction = null;
 let audioDialogMode = 'desktop';
 let audioState = { desktopMode: 'mobile', browserMode: 'mobile', activeMode: 'none', effectiveDestination: null, routingApplied: false };
+let guacAudioObserver = null;
 const mobileAudio = { context: null, socket: null, nextTime: 0, format: { sampleRate: 48000, channels: 2 } };
 
 init();
@@ -90,7 +91,7 @@ function openAudioDialog(mode) {
 
 async function chooseAudioDestination(destination) {
   if (!audioLabels[destination]) return;
-  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
+  if (audioDialogMode === 'browser' && (destination === 'mobile' || destination === 'both')) primeMobileAudio();
   try {
     audioState = await fetchJson('/api/audio', {
       method: 'PUT',
@@ -134,6 +135,7 @@ function renderAudioState() {
       : 'Audio Router is ready. Open Desktop or Browser to apply the selected destination.';
   }
   syncMobileAudioTransport();
+  syncGuacamoleAudioRoute();
 }
 
 function primeMobileAudio() {
@@ -150,8 +152,8 @@ function primeMobileAudio() {
 }
 
 function syncMobileAudioTransport() {
-  const wantsStream = ['mobile', 'both'].includes(audioState.effectiveDestination)
-    && audioState.activeMode !== 'none'
+  const wantsStream = audioState.activeMode === 'browser'
+    && ['mobile', 'both'].includes(audioState.effectiveDestination)
     && audioState.router?.helperAvailable;
   if (wantsStream) ensureMobileAudioStream();
   else stopMobileAudioStream();
@@ -227,16 +229,25 @@ function queuePcmAudio(arrayBuffer) {
   mobileAudio.nextTime = start + audioBuffer.duration;
 }
 
-function enforceGuacamoleAudioMute() {
-  if (!audioState.router?.helperAvailable) return;
+function syncGuacamoleAudioRoute() {
   try {
     const doc = app.desktopFrame.contentDocument;
-    if (!doc) return;
-    const mute = root => root.querySelectorAll?.('audio,video').forEach(media => { media.muted = true; });
-    mute(doc);
-    const observer = new MutationObserver(() => mute(doc));
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), 30000);
+    if (!doc?.documentElement) return;
+
+    const shouldPlayOnMobile = audioState.activeMode === 'desktop'
+      && ['mobile', 'both'].includes(audioState.effectiveDestination);
+
+    const apply = () => {
+      doc.querySelectorAll('audio,video').forEach(media => {
+        media.muted = !shouldPlayOnMobile;
+        if (shouldPlayOnMobile && media.paused && media.play) media.play().catch(() => {});
+      });
+    };
+
+    apply();
+    guacAudioObserver?.disconnect();
+    guacAudioObserver = new MutationObserver(apply);
+    guacAudioObserver.observe(doc.documentElement, { childList: true, subtree: true });
   } catch {}
 }
 
@@ -300,11 +311,9 @@ function renderDisconnectedState() {
 
 function openDesktop() {
   openView(app.desktopView);
-  const destination = audioState.desktopMode || 'mobile';
-  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
   void setActiveAudioMode('desktop');
   app.desktopMessage.hidden = false;
-  app.desktopFrame.onload = () => { app.desktopMessage.hidden = true; enforceGuacamoleAudioMute(); };
+  app.desktopFrame.onload = () => { app.desktopMessage.hidden = true; syncGuacamoleAudioRoute(); };
   app.desktopFrame.src = (config?.desktop?.path || '/guacamole/');
 }
 
@@ -321,6 +330,8 @@ function closeViews() {
   app.browserView.hidden = true;
   app.desktopFrame.src = 'about:blank';
   document.body.style.overflow = '';
+  guacAudioObserver?.disconnect();
+  guacAudioObserver = null;
   void setActiveAudioMode('none');
   stopMobileAudioStream();
 }
