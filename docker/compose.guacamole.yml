@@ -1,0 +1,40 @@
+services:
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    networks: [mrd-internal]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guacamole_db
+      POSTGRES_USER: guacamole_user
+      POSTGRES_PASSWORD: ${GUAC_DB_PASSWORD}
+    volumes:
+      - guac-db:/var/lib/postgresql/data
+      - ./initdb.sql:/docker-entrypoint-initdb.d/001-guacamole.sql:ro
+    networks: [mrd-internal]
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    restart: unless-stopped
+    depends_on: [guacd, postgres]
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_ENABLED: "true"
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USERNAME: guacamole_user
+      POSTGRESQL_PASSWORD: ${GUAC_DB_PASSWORD}
+      REMOTE_IP_VALVE_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [mrd-internal]
+
+volumes:
+  guac-db:
+
+networks:
+  mrd-internal:
+    internal: true
