@@ -2,39 +2,45 @@
 
 Private, Tailscale-only Progressive Web App for controlling and remotely using a Windows 11 Pro PC from an iPhone.
 
-## What is implemented now
+## V0.1 scope
 
-- PWA installable from Safari with no TestFlight/App Store subscription.
-- Canonical four-state dashboard:
+Implemented in the repository now:
+
+- Installable iPhone PWA with no TestFlight/App Store dependency.
+- Canonical four-state UI model:
   - **Grey** — Offline
   - **Yellow** — Asleep
   - **Blue** — Online · Unlocked
   - **Green** — Online · Locked
-- Live status stream (Server-Sent Events) plus reconnect/offline detection.
-- CPU, RAM, and uptime metrics.
-- Windows lock-state detection using the Windows `LogonUI` process as the V0.1 detector.
-- Guarded Lock, Sleep, Restart, and Shut down APIs. They are disabled by default.
-- In-PWA Desktop surface.
-- Local reverse proxy for Apache Guacamole, including WebSocket upgrades, so the HTML5 RDP layer stays under the PWA origin.
-- Apache Guacamole 1.6.0 + guacd + PostgreSQL Docker Compose foundation.
-- Mobile Browser shell and media-first surface prepared for the next milestone.
-- Tailscale Serve setup script. The app listens on localhost by default and is intended to be reachable only through Tailscale Serve.
+- Dashboard shell for CPU, RAM, uptime, latency, PC controls, Desktop, and Browser.
+- Server-Sent Events status channel.
+- Tailscale Serve setup.
+- Apache Guacamole 1.6.0 + `guacd` + PostgreSQL Docker foundation for HTML5 RDP.
+- Windows RDP enablement script.
+- Browser/media-first mobile interface shell.
+- PWA service worker, manifest, and Home Screen icon.
 
-## Architecture
+### Repository baseline limitation
+
+The current `src/server.mjs` is deliberately a safe baseline. It serves the PWA and status channel, but **does not yet execute Windows power actions or proxy the Guacamole/RDP transport**. The UI keeps those actions disabled. Those host-side integrations are the next local implementation step after the baseline is installed and verified on the target PC.
+
+The Docker Guacamole stack and RDP setup scripts are already included so that integration can be wired against the real Windows 11 Pro host rather than mocked.
+
+## Target architecture
 
 ```text
 iPhone PWA
    |
    | HTTPS / Tailscale Serve
    v
-Mini Remote Desktop (MRD) Host (127.0.0.1:8787)
-   |-- status + controls
-   |-- /guacamole/* reverse proxy
+MRD Host (127.0.0.1:8787)
+   |-- live PC status + controls
+   |-- HTML5 Desktop
    |       |
    |       v
    |   Apache Guacamole -> guacd -> RDP -> Windows 11 Pro
    |
-   `-- Browser transport (next milestone) -> Chromium on the PC
+   `-- Browser / Media -> Chromium on the PC
 ```
 
 ## Requirements
@@ -54,7 +60,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\enable-rdp.ps1
 ```
 
-Or enable it manually under **Settings > System > Remote Desktop**.
+Then confirm **Settings > System > Remote Desktop** reports **On**.
 
 ## 2. Start Guacamole
 
@@ -76,29 +82,23 @@ Create an RDP connection with:
 - Port: `3389`
 - Username: your Windows username
 - Password: your Windows password
-- Security mode: `Any` initially; tighten after the connection is proven
+- Security mode: `Any` for the first local proof
 - Ignore server certificate: enabled for the first local proof only
 
-The Guacamole container is not published to your LAN; it binds to `127.0.0.1:8080`, and `guacd` is not published at all.
+The Guacamole container binds to `127.0.0.1:8080`; `guacd` is not published externally.
 
-## 3. Start Mini Remote Desktop (MRD)
+## 3. Start MRD
 
 ```powershell
 Copy-Item .env.example .env
 .\scripts\start.ps1
 ```
 
-The host listens at `http://127.0.0.1:8787`.
+MRD listens at:
 
-### Enable power controls later
-
-After the dashboard and access path are verified, edit `.env`:
-
-```env
-ALLOW_POWER_CONTROLS=true
+```text
+http://127.0.0.1:8787
 ```
-
-Restart Mini Remote Desktop (MRD). Until then, Lock/Sleep/Restart/Shutdown are visible but deliberately disabled.
 
 ## 4. Publish privately with Tailscale Serve
 
@@ -109,61 +109,71 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup-tailscale.ps1
 ```
 
-Tailscale will show a private HTTPS URL such as:
+Tailscale will show a private HTTPS URL similar to:
 
 ```text
 https://your-pc.your-tailnet.ts.net
 ```
 
-Only devices/users allowed by your tailnet ACLs can reach it. Do **not** use Tailscale Funnel for this project.
+Use **Tailscale Serve**, not Funnel. MRD is intended to remain private to the tailnet.
 
-## 5. Put it on the iPhone Home Screen
+## 5. Add MRD to the iPhone Home Screen
 
 1. Connect Tailscale on the iPhone.
 2. Open the Tailscale Serve HTTPS URL in Safari.
 3. Tap **Share**.
 4. Choose **Add to Home Screen**.
 5. Enable **Open as Web App** if prompted.
-6. Launch **Mini Remote Desktop (MRD)** from its Home Screen icon.
+6. Launch **MRD** from the Home Screen.
 
-## Desktop behavior
+## Desktop milestone
 
-Tap **Desktop** in Mini Remote Desktop (MRD). The PWA embeds the Guacamole HTML5 client under `/guacamole/`; Guacamole then establishes the actual RDP session to Windows.
+The Desktop surface is already present in the PWA and the Guacamole stack is included. The next host-service pass will connect `/guacamole/` through the MRD origin and then streamline Guacamole into a direct app-controlled RDP session rather than a generic connection picker.
 
-The first V0.1 integration intentionally uses Guacamole's existing authenticated web client inside our PWA. The next desktop pass will replace the stock connection-selection feel with a direct, app-controlled connection flow while keeping the mature Guacamole/RDP transport underneath.
+The intended end state is:
+
+```text
+Physical monitors -> genuine Windows lock/sign-in screen
+Phone             -> active HTML5 RDP desktop inside MRD
+```
 
 ## Browser / Media milestone
 
-The Browser screen is already part of the PWA but the remote Chromium transport is intentionally not faked. The next implementation step is:
+The Browser surface is intentionally not faked with a normal iframe. The planned implementation is:
 
 1. launch/manage Chromium on the PC;
 2. create an iPhone-sized mobile browser context;
-3. stream the rendered surface to the PWA;
-4. return touch/keyboard/scroll input to Chromium;
-5. detect media and promote it into the dedicated native-style media surface;
-6. use real `<video>` playback semantics where possible for iPhone fullscreen/media controls.
+3. stream the rendered surface to MRD;
+4. return touch, keyboard, and scroll input to Chromium;
+5. detect media and promote it into a native-style media surface;
+6. support fullscreen/landscape video behavior on iPhone.
 
-## Status state semantics
+## Status semantics
 
-`onlineLocked` and `onlineUnlocked` come from the responding Windows host.
+MRD's canonical states are:
 
-`asleep` is retained by the PWA when **Mini Remote Desktop (MRD) itself requested Sleep** and the host then disappears. If the PC disappears unexpectedly, the state becomes `offline`. A later Windows event-monitoring service will make externally initiated sleep/wake transitions authoritative too.
+- `offline`
+- `asleep`
+- `onlineUnlocked`
+- `onlineLocked`
 
-## Security notes
+The current repository host reports a baseline online state while the Windows-native lock/sleep detector is being integrated. The UI and protocol names are already fixed to the four-state model.
 
-- Mini Remote Desktop (MRD) binds to `127.0.0.1` by default.
-- Tailscale Serve is the only intended network exposure.
-- RDP port 3389 is not published to the internet.
+## Security principles
+
+- MRD binds to `127.0.0.1` by default.
+- Tailscale Serve is the intended network exposure.
+- Do not port-forward RDP or MRD to the public internet.
 - Guacamole binds only to localhost.
-- `guacd` is isolated inside an internal Docker network and is not published because guacd itself does not authenticate clients.
-- Power-control APIs are disabled by default.
+- `guacd` stays inside the internal Docker network.
+- Generated secrets and runtime state are excluded by `.gitignore`.
+- Power controls remain disabled until the host integration is verified locally.
 
-## Development demo
-
-On a non-Windows development machine, run:
+## Development
 
 ```bash
-PC_REMOTE_DEMO_STATE=onlineLocked npm start
+npm run check
+npm start
 ```
 
-Valid demo states: `offline`, `asleep`, `onlineUnlocked`, `onlineLocked`.
+Project shorthand: **MRD**.
