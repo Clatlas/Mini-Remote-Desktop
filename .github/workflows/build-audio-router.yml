@@ -1,0 +1,39 @@
+name: Build MRD Audio Router
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'native/audio-router/**'
+      - '.github/workflows/build-audio-router.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build x64 Release
+        shell: pwsh
+        run: msbuild native/audio-router/MrdAudioRouter.vcxproj /m /p:Configuration=Release /p:Platform=x64
+      - name: Stage binary and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item native/audio-router/x64/Release/MrdAudioRouter.exe dist/mrd-audio-router.exe
+          (Get-FileHash dist/mrd-audio-router.exe -Algorithm SHA256).Hash.ToLower() | Set-Content -NoNewline dist/mrd-audio-router.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mrd-audio-router-windows-x64
+          path: dist/*
+      - name: Publish rolling release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete audio-router-latest --cleanup-tag -y 2>$null
+          gh release create audio-router-latest dist/mrd-audio-router.exe dist/mrd-audio-router.exe.sha256 --title "MRD Audio Router (latest)" --notes "Rolling Windows x64 build for MRD. Generated from commit $env:GITHUB_SHA."
