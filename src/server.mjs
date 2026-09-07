@@ -7,6 +7,7 @@ import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { AudioRouter } from './audio-router.mjs';
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,7 @@ const clients = new Set();
 let lastStatusJson = '';
 let cpuPrevious = sampleCpu();
 let runtimeState = normalizeRuntimeState(await readRuntimeState());
+const audioRouter = new AudioRouter(ROOT);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -65,7 +67,7 @@ const server = http.createServer(async (req, res) => {
         audio: {
           destinations: ['desktop', 'mobile', 'both', 'muted'],
           defaultDestination: 'mobile',
-          routingApplied: false
+          ...audioRouter.status
         }
       });
     }
@@ -123,6 +125,10 @@ const server = http.createServer(async (req, res) => {
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  if (url.pathname === '/api/audio/stream') {
+    audioRouter.handleUpgrade(req, socket, head);
+    return;
+  }
   if (!url.pathname.startsWith('/guacamole/')) {
     socket.destroy();
     return;
@@ -134,6 +140,7 @@ server.listen(PORT, HOST, () => {
   console.log(`MRD listening on http://${HOST}:${PORT}`);
   console.log(`Guacamole proxy target: ${GUACAMOLE_ORIGIN.origin}`);
   console.log(`Power controls: ${ALLOW_POWER_CONTROLS ? 'ENABLED' : 'disabled'}`);
+  console.log(`Audio router: ${audioRouter.available ? 'available' : 'not installed'}`);
 });
 
 setInterval(async () => {
@@ -195,14 +202,16 @@ function getAudioState() {
     : audio.activeMode === 'browser'
       ? audio.browserMode
       : null;
+  const routerStatus = audioRouter.status;
 
   return {
     desktopMode: audio.desktopMode,
     browserMode: audio.browserMode,
     activeMode: audio.activeMode,
     effectiveDestination,
-    routingApplied: false,
-    transportPhase: 'policy-ready'
+    routingApplied: routerStatus.routingApplied && routerStatus.appliedDestination === effectiveDestination,
+    transportPhase: routerStatus.helperAvailable ? 'native-router' : 'helper-required',
+    router: routerStatus
   };
 }
 
@@ -227,6 +236,8 @@ async function updateAudioState(body) {
   }
 
   await writeRuntimeState(runtimeState);
+  const policy = getAudioState();
+  await audioRouter.apply(policy.effectiveDestination);
   const state = getAudioState();
   broadcast('audio', state);
   return { ok: true, ...state };
@@ -339,7 +350,6 @@ async function serveStatic(requestPath, req, res) {
     });
     if (req.method !== 'HEAD') res.end(data); else res.end();
   } catch {
-    // SPA fallback for client-side navigation.
     const data = await fs.readFile(path.join(PUBLIC_DIR, 'index.html'));
     res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
     res.end(data);
@@ -432,6 +442,17 @@ async function writeRuntimeState(value) {
     await fs.writeFile(STATE_FILE, JSON.stringify(value, null, 2));
   } catch {}
 }
+
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { await audioRouter.shutdown(); } catch {}
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 function loadDotEnv(file) {
   if (!fssync.existsSync(file)) return;
