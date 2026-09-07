@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MRD" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+  <title>MRD</title>
+</head>
+<body>
+  <main class="app-shell" id="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">PRIVATE PC CLOUD</div>
+        <h1 id="pcName">Home PC</h1>
+      </div>
+      <button class="icon-button" id="refreshBtn" aria-label="Refresh status">↻</button>
+    </header>
+
+    <section class="status-card" aria-live="polite">
+      <div class="status-row">
+        <div class="status-pill" id="statusPill" data-state="offline">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="statusText">Offline</span>
+        </div>
+        <div class="latency" id="lastSeen">Waiting for host</div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric">
+          <span class="metric-label">CPU</span>
+          <strong id="cpuMetric">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">RAM</span>
+          <strong id="ramMetric">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">UPTIME</span>
+          <strong id="uptimeMetric">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="launch-grid" aria-label="Remote modes">
+      <button class="launch-card primary" id="desktopBtn">
+        <span class="launch-icon">▣</span>
+        <span>
+          <strong>Desktop</strong>
+          <small>Full Windows session</small>
+        </span>
+        <span class="chevron">›</span>
+      </button>
+
+      <button class="launch-card" id="browserBtn">
+        <span class="launch-icon">◎</span>
+        <span>
+          <strong>Browser</strong>
+          <small>PC-powered mobile browsing</small>
+        </span>
+        <span class="chevron">›</span>
+      </button>
+    </section>
+
+    <section class="controls-section">
+      <div class="section-heading">
+        <h2>PC controls</h2>
+        <span id="controlsLock" class="section-note">Protected</span>
+      </div>
+      <div class="control-grid">
+        <button class="control-button" data-power="lock"><span>⌾</span><small>Lock</small></button>
+        <button class="control-button" data-power="sleep"><span>◐</span><small>Sleep</small></button>
+        <button class="control-button" data-power="restart"><span>↻</span><small>Restart</small></button>
+        <button class="control-button danger" data-power="shutdown"><span>⏻</span><small>Shut down</small></button>
+      </div>
+    </section>
+
+    <section class="security-note">
+      <span class="shield">◆</span>
+      <div>
+        <strong>Tailscale-only</strong>
+        <p>This interface is designed to listen on localhost and be published privately through Tailscale Serve.</p>
+      </div>
+    </section>
+  </main>
+
+  <section class="view-layer" id="desktopView" hidden>
+    <header class="view-toolbar">
+      <button class="back-button" data-close-view="desktop">‹</button>
+      <div><strong>Desktop</strong><small>HTML5 RDP</small></div>
+      <button class="toolbar-button" id="desktopReload">↻</button>
+    </header>
+    <div class="desktop-stage">
+      <iframe id="desktopFrame" title="Remote Windows desktop" allow="clipboard-read; clipboard-write"></iframe>
+      <div class="stage-message" id="desktopMessage">
+        <strong>Starting desktop gateway…</strong>
+        <span>Apache Guacamole will appear here when the local gateway is running.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="view-layer browser-layer" id="browserView" hidden>
+    <header class="browser-topbar">
+      <button class="back-button" data-close-view="browser">‹</button>
+      <form id="browserForm" class="address-form">
+        <input id="addressInput" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="Search or enter website" />
+      </form>
+      <button class="toolbar-button" id="browserMenu">⋯</button>
+    </header>
+
+    <div class="browser-stage">
+      <div class="browser-placeholder" id="browserPlaceholder">
+        <div class="browser-mark">◎</div>
+        <h2>PC Browser Engine</h2>
+        <p>The mobile browser shell is in place. Chromium streaming is the next implementation milestone.</p>
+        <div class="feature-list">
+          <span>Mobile viewport</span>
+          <span>Media mode</span>
+          <span>Fullscreen video</span>
+          <span>PC compute</span>
+        </div>
+      </div>
+
+      <div class="media-demo" id="mediaDemo" hidden>
+        <video id="mediaVideo" controls playsinline></video>
+      </div>
+    </div>
+
+    <nav class="browser-nav" aria-label="Browser controls">
+      <button id="browserBack" disabled>‹</button>
+      <button id="browserForward" disabled>›</button>
+      <button id="browserHome">⌂</button>
+      <button id="browserTabs">▱</button>
+      <button id="mediaModeBtn">▶</button>
+    </nav>
+  </section>
+
+  <dialog id="confirmDialog">
+    <form method="dialog" class="dialog-card">
+      <h2 id="confirmTitle">Confirm action</h2>
+      <p id="confirmText"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary-button">Cancel</button>
+        <button value="confirm" class="danger-button" id="confirmAction">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
