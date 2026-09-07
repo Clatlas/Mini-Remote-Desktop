@@ -126,6 +126,7 @@
             <button class="command-card" id="commandApps"><span class="command-icon">▦</span><span><strong>Apps</strong><small>Open a pinned Windows application</small></span><span class="chevron">›</span></button>
             <button class="command-card" id="commandDesktop"><span class="command-icon">▣</span><span><strong>Full Desktop</strong><small>Use the complete Windows desktop</small></span><span class="chevron">›</span></button>
             <button class="command-card" id="commandAdmin"><span class="command-icon">⚙</span><span><strong>MRD Admin</strong><small>Docker, Guacamole, Tailscale, and service tools</small></span><span class="chevron">›</span></button>
+            <button class="command-card" id="commandUpdate"><span class="command-icon">⇣</span><span><strong>Update MRD</strong><small>Pull latest GitHub code and restart MRD</small></span><span class="chevron">›</span></button>
           </div>
 
           <button class="disconnect-button" id="disconnectBtn">Disconnect</button>
@@ -195,5 +196,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js?v=0.2.0" defer></script>
+  <script src="/update-control.js?v=0.2.1" defer></script>
 </body>
 </html>
