@@ -27,6 +27,15 @@ function Test-Http([string]$Url) {
     }
 }
 
+function Wait-Http([string]$Url, [int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-Http $Url) { return $true }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+    return $false
+}
+
 function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$FailureMessage) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -34,6 +43,31 @@ function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds, [string]$Fail
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
     throw $FailureMessage
+}
+
+function Show-GuacamoleDiagnostics {
+    Write-Host ''
+    Write-Host '--- Guacamole diagnostics ---' -ForegroundColor Yellow
+    Write-Host 'Container state:' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile ps
+
+    Write-Host ''
+    Write-Host 'Published Guacamole port:' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile port guacamole 8080
+
+    Write-Host ''
+    Write-Host 'Guacamole log (last 100 lines):' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile logs --tail 100 guacamole
+
+    Write-Host ''
+    Write-Host 'PostgreSQL log (last 60 lines):' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile logs --tail 60 postgres
+
+    Write-Host ''
+    Write-Host 'guacd log (last 60 lines):' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile logs --tail 60 guacd
+    Write-Host '--- End Guacamole diagnostics ---' -ForegroundColor Yellow
+    Write-Host ''
 }
 
 Write-Host 'Mini Remote Desktop - Starting complete stack' -ForegroundColor Green
@@ -85,8 +119,28 @@ if ((Test-Path $DockerEnv) -and (Test-Path (Join-Path $Root 'docker\initdb.sql')
     & $GuacSetup
 }
 
-Wait-Until -TimeoutSeconds 60 -FailureMessage 'Guacamole did not become reachable on 127.0.0.1:8080.' -Condition {
-    Test-Http 'http://127.0.0.1:8080/guacamole/'
+$guacUrl = 'http://127.0.0.1:8080/guacamole/'
+$guacReady = Wait-Http -Url $guacUrl -TimeoutSeconds 45
+
+if (-not $guacReady) {
+    Write-Host 'Guacamole containers are up but HTTP is not responding. Restarting the Guacamole frontend...' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile restart guacamole
+    if ($LASTEXITCODE -eq 0) {
+        $guacReady = Wait-Http -Url $guacUrl -TimeoutSeconds 30
+    }
+}
+
+if (-not $guacReady) {
+    Write-Host 'Guacamole still is not responding. Recreating only the Guacamole frontend container...' -ForegroundColor Yellow
+    & docker compose --env-file $DockerEnv -f $ComposeFile up -d --force-recreate guacamole
+    if ($LASTEXITCODE -eq 0) {
+        $guacReady = Wait-Http -Url $guacUrl -TimeoutSeconds 45
+    }
+}
+
+if (-not $guacReady) {
+    Show-GuacamoleDiagnostics
+    throw 'Guacamole is running in Docker but is not reachable on 127.0.0.1:8080. The diagnostics above identify the failing layer.'
 }
 Write-Host 'Guacamole: ready' -ForegroundColor Green
 
