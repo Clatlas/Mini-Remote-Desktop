@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="MRD" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icon.svg" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=0.1.4" />
   <title>MRD</title>
 </head>
 <body>
@@ -98,10 +98,7 @@
     </header>
     <div class="desktop-stage">
       <iframe id="desktopFrame" title="Remote Windows desktop" allow="clipboard-read; clipboard-write"></iframe>
-      <div class="stage-message" id="desktopMessage">
-        <strong>Starting desktop gateway…</strong>
-        <span>Apache Guacamole will appear here when the local gateway is running.</span>
-      </div>
+      <div class="stage-message" id="desktopMessage" hidden aria-hidden="true" style="display:none!important;pointer-events:none!important"></div>
     </div>
   </section>
 
@@ -190,6 +187,6 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=0.1.4" defer></script>
 </body>
 </html>
