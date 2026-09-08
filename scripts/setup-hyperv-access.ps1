@@ -10,6 +10,7 @@ $HyperVAdminsSid = 'S-1-5-32-578'
 $Root = Split-Path -Parent $PSScriptRoot
 $Runtime = Join-Path $Root '.runtime'
 $ResultFile = Join-Path $Runtime 'hyperv-access-result.json'
+$ErrorFile = Join-Path $Runtime 'hyperv-access-error.txt'
 New-Item -ItemType Directory -Force -Path $Runtime | Out-Null
 
 function Get-CurrentIdentityName {
@@ -54,22 +55,36 @@ function Write-Result([hashtable]$Value) {
 
 function Write-Failure([string]$Stage, [System.Exception]$Exception) {
   $message = if ($Exception) { $Exception.Message } else { 'Unknown error' }
+  $detail = if ($Exception) { $Exception.ToString() } else { $message }
+  try {
+    @(
+      "At: $([DateTimeOffset]::Now.ToString('o'))"
+      "Stage: $Stage"
+      "TargetUser: $TargetUser"
+      "Elevated: $Elevated"
+      "StatusOnly: $StatusOnly"
+      "Message: $message"
+      ''
+      $detail
+    ) | Set-Content -Path $ErrorFile -Encoding UTF8
+  } catch {}
   Write-Result @{
     state = 'failed'
     stage = $Stage
     targetUser = $TargetUser
     error = $message
+    errorFile = $ErrorFile
   }
   '=== MRD HYPER-V ACCESS FAILED ==='
   "Stage          : $Stage"
   "Target account : $TargetUser"
   "Error          : $message"
+  "Details        : $ErrorFile"
 }
 
 if (-not $TargetUser) { $TargetUser = Get-CurrentIdentityName }
 
 try {
-  # Status can be requested without elevation. Keep it read-only and explicit.
   if ($StatusOnly) {
     $group = Get-HyperVGroup
     $accountMember = Test-AccountMembership $TargetUser $group
@@ -90,15 +105,23 @@ try {
     exit 0
   }
 
-  # Do not touch Hyper-V group APIs until after elevation. The previous helper
-  # could fail here before Windows ever had a chance to display UAC.
   if (-not (Test-IsAdministrator)) {
-    $quotedScript = '"' + $PSCommandPath.Replace('"','\"') + '"'
-    $quotedUser = '"' + $TargetUser.Replace('"','\"') + '"'
-    $argumentLine = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File $quotedScript -TargetUser $quotedUser -Elevated"
+    # Use an encoded child payload instead of a quoted -File argument line.
+    # This avoids nested quoting failures when MRD itself is running from an
+    # EncodedCommand PowerShell process.
+    $scriptLiteral = $PSCommandPath.Replace("'", "''")
+    $userLiteral = $TargetUser.Replace("'", "''")
+    $payload = "& '$scriptLiteral' -TargetUser '$userLiteral' -Elevated"
+    $encodedPayload = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($payload))
 
     try {
-      $child = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argumentLine -PassThru
+      $child = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
+        '-NoLogo',
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-EncodedCommand', $encodedPayload
+      ) -PassThru
+
       Write-Result @{
         state = 'uac-requested'
         stage = 'request-elevation'
@@ -134,6 +157,7 @@ try {
   $afterMember = Test-AccountMembership $TargetUser $group
   if (-not $afterMember) { throw "The account '$TargetUser' could not be verified in '$($group.Name)'." }
 
+  $currentTokenMember = Test-TokenMembership
   Write-Result @{
     state = 'membership-added'
     stage = 'membership-complete'
