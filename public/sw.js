@@ -1,4 +1,4 @@
-const CACHE = 'mrd-v0.6.0-vdd-privacy';
+const CACHE = 'mrd-v0.6.1-chrome-diagnostics';
 const APP_SHELL = [
   '/', '/index.html',
   '/styles.css?v=0.5.0', '/iphone-safearea.css?v=0.5.0',
