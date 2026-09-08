@@ -382,6 +382,41 @@ async function openManagedChrome(mode = 'incognito') {
 
 async function handleAdminAction(action) {
   if (!action) return { ok: false, error: 'Admin action required.' };
+  if (typeof action === 'string' && action.startsWith('powershell:')) {
+    if (process.platform !== 'win32') return { ok: false, executed: false, error: 'PowerShell console is Windows-only.' };
+    const command = action.slice('powershell:'.length);
+    if (!command.trim()) return { ok: false, executed: false, error: 'PowerShell command required.' };
+    if (command.length > 16000) return { ok: false, executed: false, error: 'PowerShell command exceeds the 16,000 character limit.' };
+
+    const encoded = Buffer.from(command, 'utf16le').toString('base64');
+    const startedAt = Date.now();
+    try {
+      const { stdout, stderr } = await execFileAsync('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded
+      ], { windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+      return {
+        ok: true,
+        executed: true,
+        exitCode: 0,
+        timedOut: false,
+        durationMs: Date.now() - startedAt,
+        stdout: String(stdout || ''),
+        stderr: String(stderr || '')
+      };
+    } catch (error) {
+      const timedOut = Boolean(error.killed) || error.code === 'ETIMEDOUT';
+      const numericCode = Number(error.code);
+      return {
+        ok: true,
+        executed: true,
+        exitCode: Number.isFinite(numericCode) ? numericCode : (timedOut ? 124 : 1),
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        stdout: String(error.stdout || ''),
+        stderr: String(error.stderr || error.message || '')
+      };
+    }
+  }
   if (action === 'restart-guacamole') return restartGuacamole(ROOT);
   if (action === 'restart-docker') return restartDockerDesktop();
   if (action === 'restart-tailscale') return restartTailscale();
