@@ -41,3 +41,5 @@ jobs:
           git add -A
           git commit -m "Replace Browser Engine with managed Chrome window"
           git push origin HEAD:feature/chrome-window-browser
+
+# retry: static-audit matcher normalized
