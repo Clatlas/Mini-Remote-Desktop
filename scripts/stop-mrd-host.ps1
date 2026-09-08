@@ -40,11 +40,11 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyCon
 # the listener, stop it even if its command line is unavailable/truncated.
 $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
 foreach ($listener in $listeners) {
-    $pid = [int]$listener.OwningProcess
-    if ($targets.ContainsKey($pid)) { continue }
-    $record = Get-ProcessRecord $pid
+    $ownerProcessId = [int]$listener.OwningProcess
+    if ($targets.ContainsKey($ownerProcessId)) { continue }
+    $record = Get-ProcessRecord $ownerProcessId
     if ($record -and $record.Name -match '^node(\.exe)?$') {
-        $targets[$pid] = $record
+        $targets[$ownerProcessId] = $record
     }
 }
 
