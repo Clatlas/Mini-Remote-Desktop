@@ -1,5 +1,11 @@
-const CACHE = 'mrd-v0.3.1-secret-transport';
-const APP_SHELL = ['/', '/index.html', '/styles.css?v=0.3.0', '/iphone-safearea.css?v=0.3.0', '/app.js?v=0.3.0', '/secret-client.js?v=0.3.1', '/manifest.webmanifest', '/icon.svg'];
+const CACHE = 'mrd-v0.4.0-complete-features';
+const APP_SHELL = [
+  '/', '/index.html',
+  '/styles.css?v=0.4.0', '/iphone-safearea.css?v=0.4.0',
+  '/app.js?v=0.4.0', '/browser-engine.js?v=0.4.0', '/secret-client.js?v=0.4.0',
+  '/app-manager.js?v=0.4.0', '/extras.js?v=0.4.0',
+  '/manifest.webmanifest', '/icon.svg'
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
