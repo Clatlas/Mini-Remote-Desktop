@@ -175,9 +175,13 @@
     } catch (error) {
       const note = $('privacyNote');
       const foot = $('connectFootnote');
-      if (note) note.textContent = error.message;
-      if (foot) foot.textContent = 'Run scripts/setup-secret-transport.ps1 once as Administrator, then restart MRD.';
-      toast(error.message);
+      const message = String(error?.message || 'Secret connection failed.');
+      const locked = /windows is locked|lock screen|secure windows/i.test(message);
+      if (note) note.textContent = message;
+      if (foot) foot.textContent = locked
+        ? 'Unlock Windows, then reconnect Secret mode. Secret never captures the secure lock screen.'
+        : 'Check the Secret transport status or run setup only if MRD reports a missing prerequisite.';
+      toast(message);
     } finally {
       if (button) button.disabled = false;
       if (label) label.textContent = original;
@@ -476,7 +480,7 @@
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
     if (!state.audio.context) {
-      try { state.audio.context = new AudioContextClass({ latencyHint:'interactive', sampleRate:48000 }); }
+      try { state.audio.context = new AudioContextClass({ latencyHint:'interactive', sampleRate:48000 });
       catch { state.audio.context = new AudioContextClass(); }
     }
     if (state.audio.context.state === 'suspended') state.audio.context.resume().catch(() => {});
