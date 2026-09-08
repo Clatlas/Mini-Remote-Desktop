@@ -115,6 +115,10 @@ Get-StartApps |
   }
 
   async launch(id) {
+    // Update MRD is an allowlisted maintenance action rather than a visible app
+    // catalog entry. Keep it routed through the hardened Windows launcher.
+    if (id === 'update-mrd') return launchWindowsApp(id);
+
     const builtin = getBuiltInApps().find(item => item.id === id);
     if (builtin) return launchWindowsApp(id);
 
