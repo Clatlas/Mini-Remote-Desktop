@@ -1,0 +1,52 @@
+name: Check MRD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  powershell-parse:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse MRD PowerShell scripts
+        shell: pwsh
+        run: |
+          $files = @(
+            'scripts/setup-secret-transport.ps1',
+            'scripts/secret-input-worker.ps1',
+            'scripts/start-all.ps1',
+            'scripts/tune-guacamole-connection.ps1',
+            'scripts/update-mrd.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count) {
+              $errors | ForEach-Object { Write-Error "$file: $($_.Message)" }
+              throw "PowerShell parse failed: $file"
+            }
+            Write-Host "Parsed: $file" -ForegroundColor Green
+          }
