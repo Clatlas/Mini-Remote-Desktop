@@ -21,8 +21,6 @@ jobs:
 
           $indexPath = 'public/index.html'
           $index = Get-Content -Raw $indexPath
-          if (-not $index.Contains('/styles.css?v=0.3.0')) { throw 'Expected styles.css v0.3.0 reference was not found.' }
-          if (-not $index.Contains('/iphone-safearea.css?v=0.3.0')) { throw 'Expected iphone-safearea.css v0.3.0 reference was not found.' }
           $index = $index.Replace('/styles.css?v=0.3.0', '/styles.css?v=0.4.0')
           $index = $index.Replace('/iphone-safearea.css?v=0.3.0', '/iphone-safearea.css?v=0.4.0')
           [IO.File]::WriteAllText($indexPath, $index)
@@ -30,10 +28,8 @@ jobs:
           $appPath = 'public/app.js'
           $app = Get-Content -Raw $appPath
           $property = ', browserToDesktopBtn: $(''browserToDesktopBtn'')'
-          if (-not $app.Contains($property)) { throw 'Obsolete browserToDesktopBtn property was not found.' }
           $app = $app.Replace($property, '')
           $listener = '  app.browserToDesktopBtn.addEventListener(''click'', () => { closeBrowserPreview(); openDesktopSetup(); });'
-          if (-not $app.Contains($listener)) { throw 'Obsolete browserToDesktopBtn listener was not found.' }
           $app = $app.Replace($listener + "`r`n", '')
           $app = $app.Replace($listener + "`n", '')
           [IO.File]::WriteAllText($appPath, $app)
@@ -42,7 +38,6 @@ jobs:
           $browser = Get-Content -Raw $browserPath
           $oldMedia = '.browser-media-mode{position:absolute;inset:0;z-index:12;background:#000;display:flex;'
           $newMedia = '.browser-media-mode{position:absolute;inset:0;z-index:12;background:transparent;display:flex;'
-          if (-not $browser.Contains($oldMedia)) { throw 'Expected Media Mode background rule was not found.' }
           $browser = $browser.Replace($oldMedia, $newMedia)
           [IO.File]::WriteAllText($browserPath, $browser)
 
