@@ -2,6 +2,7 @@
   const state = {
     active: false,
     ready: false,
+    privacyMode: 'not-secret',
     video: null,
     input: null,
     frameUrl: null,
@@ -20,7 +21,7 @@
   const frame = document.createElement('img');
   frame.id = 'secretFrame';
   frame.className = 'secret-frame';
-  frame.alt = 'MRD Secret virtual display';
+  frame.alt = 'MRD virtual display';
   frame.draggable = false;
   frame.hidden = true;
   sessionStage.insertBefore(frame, sessionStage.firstChild);
@@ -39,23 +40,57 @@
   style.textContent = `
     .secret-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#020304;z-index:1;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
     .secret-keyboard-target{position:fixed;left:50%;bottom:calc(74px + env(safe-area-inset-bottom));width:2px;height:2px;opacity:.01;z-index:9999;border:0;padding:0;pointer-events:none}
-    body.mrd-secret-active #desktopFrame{display:none!important}
-    body.mrd-secret-active .surface-title small::after{content:' · Secret';color:var(--accent)}
+    body.mrd-vdd-active #desktopFrame{display:none!important}
+    body.mrd-vdd-active .surface-title small::after{content:' · VDD';color:var(--accent)}
   `;
   document.head.appendChild(style);
 
-  bindSecretUi();
+  bindVddUi();
+  bindPrivacyCopy();
 
   function selectedPrivacy() {
     return document.querySelector('[data-privacy-mode].selected')?.dataset.privacyMode || 'not-secret';
   }
 
-  function bindSecretUi() {
+  function bindPrivacyCopy() {
+    const note = $('privacyNote');
+    if (note) {
+      const observer = new MutationObserver(() => syncPrivacyCopy());
+      observer.observe(note, { childList:true, characterData:true, subtree:true });
+    }
+    document.querySelectorAll('[data-privacy-mode]').forEach(button => {
+      button.addEventListener('click', () => setTimeout(syncPrivacyCopy, 0));
+    });
+    for (const delay of [0,150,500,1200]) setTimeout(syncPrivacyCopy, delay);
+  }
+
+  function syncPrivacyCopy() {
+    const mode = selectedPrivacy();
+    const note = $('privacyNote');
+    const foot = $('connectFootnote');
+    const title = $('privacyDetailTitle');
+    if (mode === 'secret') {
+      if (title) title.textContent = 'Secret';
+      const text = 'MRD uses the virtual display while a privacy curtain covers every physical monitor. Windows stays in the interactive console session.';
+      if (note && note.textContent !== text) note.textContent = text;
+      const footer = 'Physical monitors hidden · MRD virtual display remains active.';
+      if (foot && foot.textContent !== footer) foot.textContent = footer;
+    } else {
+      if (title) title.textContent = 'Not Secret';
+      const text = 'MRD uses the same virtual display, but physical monitors remain visible and usable.';
+      if (note && note.textContent !== text) note.textContent = text;
+      const footer = 'Physical monitors visible · MRD virtual display remains active.';
+      if (foot && foot.textContent !== footer) foot.textContent = footer;
+    }
+  }
+
+  function bindVddUi() {
     $('connectDesktopBtn')?.addEventListener('click', event => {
-      if (selectedPrivacy() !== 'secret') return;
+      const mode = selectedPrivacy();
+      if (!['secret','not-secret'].includes(mode)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      void connectSecret();
+      void connectVdd(mode);
     }, true);
 
     $('appsList')?.addEventListener('click', event => {
@@ -66,27 +101,27 @@
       const name = card.querySelector('strong')?.textContent?.trim();
       if (!name || id === 'mrd-admin' || name === 'MRD Admin') return;
       event.preventDefault(); event.stopImmediatePropagation();
-      if (id) void launchSecretApp(id, name);
-      else void launchSecretAppByName(name);
+      if (id) void launchVddApp(id, name);
+      else void launchVddAppByName(name);
     }, true);
 
     for (const id of ['appsBackBtn','adminBackBtn','surfaceMenuBtn','dockCommandsBtn']) {
       $(id)?.addEventListener('click', event => {
         if (!state.active) return;
         event.preventDefault(); event.stopImmediatePropagation();
-        showSecretMenu();
+        showVddMenu();
       }, true);
     }
 
     $('commandDesktop')?.addEventListener('click', () => {
-      if (state.active) setTimeout(() => showSecretSurface('Full Desktop','Secret virtual display'), 0);
+      if (state.active) setTimeout(() => showVddSurface('Full Desktop', surfaceSubtitle()), 0);
     });
 
     for (const id of ['keyboardBtn','dockKeyboardBtn']) {
       $(id)?.addEventListener('click', event => {
         if (!state.active) return;
         event.preventDefault(); event.stopImmediatePropagation();
-        toggleSecretKeyboard();
+        toggleVddKeyboard();
       }, true);
     }
 
@@ -95,27 +130,27 @@
       event.preventDefault(); event.stopImmediatePropagation();
       state.inputMode = state.inputMode === 'touch' ? 'pointer' : 'touch';
       localStorage.setItem('mrdInputMode', state.inputMode);
-      renderSecretInputMode();
+      renderVddInputMode();
       toast(state.inputMode === 'touch' ? 'Direct touch input' : 'Trackpad pointer input');
     }, true);
 
     document.querySelectorAll('[data-audio-destination]').forEach(button => {
       button.addEventListener('click', () => {
-        if (state.active) setTimeout(syncSecretAudio, 350);
+        if (state.active) setTimeout(syncVddAudio, 350);
       });
     });
     for (const id of ['menuAudioBtn','surfaceAudioBtn','appsAudioBtn','adminAudioBtn','dockAudioBtn']) {
       $(id)?.addEventListener('click', () => {
         if (state.active) setTimeout(() => {
           const note = $('audioRoutingNote');
-          if (note) note.textContent = 'Secret mode uses MRD native Windows audio capture; no RDP audio path is involved.';
+          if (note) note.textContent = 'MRD virtual-display mode uses native Windows audio capture; no RDP audio path is involved.';
         }, 0);
       });
     }
 
     $('confirmDialog')?.addEventListener('close', () => {
       if (!state.active || $('confirmDialog')?.returnValue !== 'confirm') return;
-      if (($('confirmTitle')?.textContent || '').startsWith('Disconnect')) void stopSecret();
+      if (($('confirmTitle')?.textContent || '').startsWith('Disconnect')) void stopVdd();
     });
 
     keyboard.addEventListener('input', () => {
@@ -130,69 +165,116 @@
       event.preventDefault();
       sendInput({ type:'key', key:event.key });
     });
-    keyboard.addEventListener('blur', renderSecretKeyboardState);
-    keyboard.addEventListener('focus', renderSecretKeyboardState);
+    keyboard.addEventListener('blur', renderVddKeyboardState);
+    keyboard.addEventListener('focus', renderVddKeyboardState);
 
     frame.addEventListener('contextmenu', event => event.preventDefault());
     frame.addEventListener('pointerdown', onPointerDown);
     frame.addEventListener('pointermove', onPointerMove);
     frame.addEventListener('pointerup', onPointerUp);
     frame.addEventListener('pointercancel', onPointerUp);
+
+    const subtitle = $('surfaceSubtitle');
+    if (subtitle) {
+      const observer = new MutationObserver(() => {
+        if (!state.active || !document.body.classList.contains('mrd-chrome-surface')) return;
+        const desired = surfaceSubtitle();
+        if (subtitle.textContent !== desired) subtitle.textContent = desired;
+      });
+      observer.observe(subtitle, { childList:true, characterData:true, subtree:true });
+    }
   }
 
-  async function connectSecret() {
+  async function connectVdd(mode) {
     const button = $('connectDesktopBtn');
     const label = button?.querySelector('span');
     const original = label?.textContent || 'Connect';
     if (button) button.disabled = true;
-    if (label) label.textContent = 'Starting Secret…';
-    primeSecretAudio();
+    if (label) label.textContent = mode === 'secret' ? 'Starting private VDD…' : 'Starting VDD…';
+    primeVddAudio();
 
     try {
+      const preflight = await fetchJson('/api/secret/status');
+      if (!preflight.ready) throw new Error(preflight.error || 'MRD virtual display transport is not ready.');
+
+      if (mode === 'not-secret') await stopPrivacyCurtain();
+
       const result = await fetchJson('/api/session/prepare', {
-        method:'POST', body:JSON.stringify({ privacyMode:'secret' })
+        method:'POST', body:JSON.stringify({ privacyMode:mode })
       });
-      if (result.transport !== 'secret') throw new Error('MRD did not return the Secret transport.');
+
+      if (mode === 'secret') {
+        await startPrivacyCurtain();
+        await delay(250);
+      }
 
       state.active = true;
       state.ready = false;
+      state.privacyMode = mode;
+      document.body.classList.add('mrd-vdd-active');
+      // Compatibility with the existing Chrome surface controller, which uses
+      // this class to decide whether to reveal the VDD image instead of RDP.
       document.body.classList.add('mrd-secret-active');
       $('connectView').hidden = true;
       $('sessionView').hidden = false;
       $('desktopFrame').src = 'about:blank';
       frame.hidden = false;
-      $('sessionPrivacyLabel').textContent = 'Secret';
-      $('sessionWindowsState').textContent = 'Console active';
-      $('sessionConnectionText').textContent = 'Starting Secret virtual workspace…';
+      $('sessionPrivacyLabel').textContent = mode === 'secret' ? 'Secret' : 'Not Secret';
+      $('sessionWindowsState').textContent = mode === 'secret' ? 'Privacy curtain' : 'Console visible';
+      $('sessionConnectionText').textContent = mode === 'secret' ? 'Starting private virtual display…' : 'Starting virtual display…';
       $('sessionConnectionText').className = '';
       document.body.style.overflow = 'hidden';
-      renderSecretInputMode();
-      showSecretMenu();
+      renderVddInputMode();
+      showVddMenu();
 
       await fetchJson('/api/audio', { method:'PUT', body:JSON.stringify({ activeMode:'desktop' }) }).catch(() => null);
-      startSecretSockets(result.secret || {});
-      void syncSecretAudio();
+      startVddSockets(result.secret || {});
+      void syncVddAudio();
     } catch (error) {
+      if (mode === 'secret') await stopPrivacyCurtain().catch(() => {});
+      try { await fetch('/api/secret/stop', { method:'POST', cache:'no-store' }); } catch {}
       const note = $('privacyNote');
       const foot = $('connectFootnote');
-      const message = String(error?.message || 'Secret connection failed.');
-      const locked = /windows is locked|lock screen|secure windows/i.test(message);
-      if (note) note.textContent = message;
-      if (foot) foot.textContent = locked
-        ? 'Unlock Windows, then reconnect Secret mode. Secret never captures the secure lock screen.'
-        : 'Check the Secret transport status or run setup only if MRD reports a missing prerequisite.';
-      toast(message);
+      if (note) note.textContent = error.message;
+      if (foot) foot.textContent = error.message.includes('locked')
+        ? 'Unlock Windows once, then reconnect. Secret will cover the physical monitors after connection.'
+        : 'Virtual-display connection was not started.';
+      toast(error.message);
     } finally {
       if (button) button.disabled = false;
       if (label) label.textContent = original;
+      if (!state.active) setTimeout(syncPrivacyCopy, 0);
     }
   }
 
-  function startSecretSockets(secret) {
-    closeSecretSockets();
+  async function startPrivacyCurtain() {
+    const command = `Set-Location 'B:\\Mini-Remote-Desktop'; $script = Join-Path (Get-Location) 'scripts\\privacy-curtain.ps1'; Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-Mode','Start') -WindowStyle Hidden; $deadline=(Get-Date).AddSeconds(4); while((Get-Date) -lt $deadline -and -not (Test-Path '.\\.runtime\\privacy-curtain.pid')){Start-Sleep -Milliseconds 100}; if(-not (Test-Path '.\\.runtime\\privacy-curtain.pid')){throw 'MRD privacy curtain did not start.'}`;
+    const result = await runHostPowerShell(command);
+    if (Number(result.exitCode || 0) !== 0) throw new Error(result.stderr || result.stdout || 'MRD privacy curtain did not start.');
+  }
+
+  async function stopPrivacyCurtain() {
+    const command = `Set-Location 'B:\\Mini-Remote-Desktop'; & '.\\scripts\\privacy-curtain.ps1' -Mode Stop`;
+    await runHostPowerShell(command).catch(() => null);
+  }
+
+  async function runHostPowerShell(command) {
+    const response = await fetch('/api/admin/action', {
+      method:'POST', cache:'no-store',
+      headers:{ 'Content-Type':'application/json', Accept:'application/json' },
+      body:JSON.stringify({ action:`powershell:$ProgressPreference='SilentlyContinue';${command}` })
+    });
+    let body = {};
+    try { body = await response.json(); } catch {}
+    if (!response.ok || body.executed === false) throw new Error(body.error || body.stderr || 'Host PowerShell command failed.');
+    return body;
+  }
+
+  function startVddSockets(paths = {}) {
+    closeVddSockets();
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const videoPath = secret.videoPath || '/api/secret/video';
-    const inputPath = secret.inputPath || '/api/secret/input';
+    const videoPath = paths.videoPath || '/api/secret/video';
+    const inputPath = paths.inputPath || '/api/secret/input';
 
     state.video = new WebSocket(`${scheme}//${location.host}${videoPath}`);
     state.video.binaryType = 'blob';
@@ -211,15 +293,18 @@
       frame.src = url;
       if (!state.ready) {
         state.ready = true;
-        $('sessionConnectionText').textContent = 'Secret workspace connected · commands ready';
+        $('sessionConnectionText').textContent = state.privacyMode === 'secret'
+          ? 'Private virtual display connected · commands ready'
+          : 'Virtual display connected · commands ready';
         $('sessionConnectionText').className = 'ready';
       }
     });
     state.video.addEventListener('close', () => {
       if (state.active) {
         state.ready = false;
-        $('sessionConnectionText').textContent = 'Secret video disconnected';
+        $('sessionConnectionText').textContent = 'Virtual-display video disconnected';
         $('sessionConnectionText').className = 'error';
+        if (state.privacyMode === 'secret') void stopPrivacyCurtain();
       }
     });
 
@@ -233,9 +318,13 @@
     });
   }
 
-  function showSecretMenu() {
+  function surfaceSubtitle() {
+    return state.privacyMode === 'secret' ? 'Private MRD virtual display' : 'MRD virtual display · physical monitors visible';
+  }
+
+  function showVddMenu() {
     if (!state.active) return;
-    closeSecretKeyboard();
+    closeVddKeyboard();
     $('surfaceToolbar').hidden = true;
     $('surfaceDock').hidden = true;
     $('sessionMenu').hidden = false;
@@ -243,7 +332,7 @@
     $('adminMenu').hidden = true;
   }
 
-  function showSecretSurface(title, subtitle='Secret virtual display') {
+  function showVddSurface(title, subtitle=surfaceSubtitle()) {
     if (!state.active) return;
     $('sessionMenu').hidden = true;
     $('appsMenu').hidden = true;
@@ -255,46 +344,46 @@
     frame.hidden = false;
   }
 
-  async function launchSecretAppByName(name) {
+  async function launchVddAppByName(name) {
     if (!state.catalog) {
       const result = await fetchJson('/api/apps');
       state.catalog = result.apps || [];
     }
     const item = state.catalog.find(app => app.name === name);
     if (!item) return toast(`${name} is not in the MRD app catalog.`);
-    await launchSecretApp(item.id, item.name);
+    await launchVddApp(item.id, item.name);
   }
 
-  async function launchSecretApp(id, name) {
-    if (!state.ready) return toast('Secret workspace is still starting.');
+  async function launchVddApp(id, name) {
+    if (!state.ready) return toast('MRD virtual display is still starting.');
     toast(`Opening ${name}…`);
     try {
       const result = await fetchJson(`/api/apps/${encodeURIComponent(id)}/launch`, { method:'POST' });
       if (result.panel === 'mrd-admin') return;
-      setTimeout(() => showSecretSurface(name, 'Secret virtual display'), 300);
+      setTimeout(() => showVddSurface(name, surfaceSubtitle()), 300);
     } catch (error) {
       toast(error.message);
     }
   }
 
-  function toggleSecretKeyboard() {
-    if (!state.ready) return toast('Secret workspace is still starting.');
-    if (document.activeElement === keyboard) closeSecretKeyboard();
+  function toggleVddKeyboard() {
+    if (!state.ready) return toast('MRD virtual display is still starting.');
+    if (document.activeElement === keyboard) closeVddKeyboard();
     else {
       keyboard.value = '';
       try { keyboard.focus({ preventScroll:true }); } catch { keyboard.focus(); }
       document.body.classList.add('keyboard-open');
-      renderSecretKeyboardState();
+      renderVddKeyboardState();
     }
   }
 
-  function closeSecretKeyboard() {
+  function closeVddKeyboard() {
     try { keyboard.blur(); } catch {}
     document.body.classList.remove('keyboard-open');
-    renderSecretKeyboardState();
+    renderVddKeyboardState();
   }
 
-  function renderSecretKeyboardState() {
+  function renderVddKeyboardState() {
     const open = document.activeElement === keyboard;
     $('keyboardBtn')?.setAttribute('aria-pressed', String(open));
     $('dockKeyboardBtn')?.classList.toggle('active', open);
@@ -302,7 +391,7 @@
     if (small) small.textContent = open ? 'Close' : 'Keyboard';
   }
 
-  function renderSecretInputMode() {
+  function renderVddInputMode() {
     const touch = state.inputMode === 'touch';
     if ($('dockInputLabel')) $('dockInputLabel').textContent = touch ? 'Touch' : 'Pointer';
     if ($('dockInputIcon')) $('dockInputIcon').textContent = touch ? '◉' : '↖';
@@ -454,45 +543,48 @@
     try { state.input.send(JSON.stringify(message)); } catch {}
   }
 
-  async function stopSecret() {
+  async function stopVdd() {
     if (!state.active) return;
+    const wasSecret = state.privacyMode === 'secret';
     state.active = false;
     state.ready = false;
-    closeSecretKeyboard();
-    closeSecretSockets();
-    closeSecretAudio();
+    closeVddKeyboard();
+    closeVddSockets();
+    closeVddAudio();
     frame.hidden = true;
     frame.removeAttribute('src');
+    document.body.classList.remove('mrd-vdd-active');
     document.body.classList.remove('mrd-secret-active');
+    if (wasSecret) await stopPrivacyCurtain().catch(() => {});
     try { await fetch('/api/secret/stop', { method:'POST', cache:'no-store' }); } catch {}
   }
 
-  function closeSecretSockets() {
+  function closeVddSockets() {
     for (const socket of [state.video,state.input]) {
-      try { socket?.close(1000,'Secret session ended'); } catch {}
+      try { socket?.close(1000,'MRD virtual-display session ended'); } catch {}
     }
     state.video = state.input = null;
     if (state.frameUrl) URL.revokeObjectURL(state.frameUrl);
     state.frameUrl = null;
   }
 
-  function primeSecretAudio() {
+  function primeVddAudio() {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
     if (!state.audio.context) {
-      try { state.audio.context = new AudioContextClass({ latencyHint:'interactive', sampleRate:48000 });
+      try { state.audio.context = new AudioContextClass({ latencyHint:'interactive', sampleRate:48000 }); }
       catch { state.audio.context = new AudioContextClass(); }
     }
     if (state.audio.context.state === 'suspended') state.audio.context.resume().catch(() => {});
   }
 
-  async function syncSecretAudio() {
-    if (!state.active) return closeSecretAudio();
+  async function syncVddAudio() {
+    if (!state.active) return closeVddAudio();
     let audio;
     try { audio = await fetchJson('/api/audio'); } catch { return; }
     const wants = ['mobile','both'].includes(audio.desktopMode);
-    if (!wants) return closeSecretAudio();
-    primeSecretAudio();
+    if (!wants) return closeVddAudio();
+    primeVddAudio();
     if (!state.audio.context || (state.audio.socket && [WebSocket.OPEN,WebSocket.CONNECTING].includes(state.audio.socket.readyState))) return;
 
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -512,7 +604,7 @@
     socket.addEventListener('close', () => { if (state.audio.socket === socket) state.audio.socket = null; });
   }
 
-  function closeSecretAudio() {
+  function closeVddAudio() {
     try { state.audio.socket?.close(1000,'Audio route changed'); } catch {}
     state.audio.socket = null;
     state.audio.nextTime = 0;
@@ -551,6 +643,8 @@
     if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
     return body;
   }
+
+  function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
   function toast(text) {
     const target = $('toast');
