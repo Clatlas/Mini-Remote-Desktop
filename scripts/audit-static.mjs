@@ -38,7 +38,7 @@ for (const { asset, source } of jsSources) {
 }
 
 for (const asset of shellAssets) {
-  if (!sw.includes(`'${asset}'`) && !sw.includes(`\"${asset}\"`)) fail(`service worker APP_SHELL does not precache exact index asset ${asset}`);
+  if (!sw.includes(`'${asset}'`) && !sw.includes(`"${asset}"`)) fail(`service worker APP_SHELL does not precache exact index asset ${asset}`);
 }
 
 for (const asset of shellAssets) {
@@ -47,7 +47,7 @@ for (const asset of shellAssets) {
 }
 
 if (!sw.includes(`mrd-v${version}`)) fail(`service worker cache name does not include v${version}`);
-if (!server.includes(`version: '${version}'`) && !server.includes(`version: \"${version}\"`)) fail(`server /api/config version is not ${version}`);
+if (!server.includes(`version: '${version}'`) && !server.includes(`version: "${version}"`)) fail(`server /api/config version is not ${version}`);
 if (!/id\s*===\s*['"]update-mrd['"][\s\S]{0,120}launchWindowsApp\(id\)/.test(appCatalog)) {
   fail('AppCatalog does not delegate the allowlisted update-mrd action to launchWindowsApp');
 }
