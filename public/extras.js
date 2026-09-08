@@ -196,8 +196,9 @@
       const body = await response.json();
       if (!response.ok || body.executed === false) throw new Error(body.error || 'PowerShell command failed to start.');
       const sections = [];
+      const stderr = cleanPowerShellStderr(body.stderr);
       if (body.stdout) sections.push(body.stdout.trimEnd());
-      if (body.stderr) sections.push(`[stderr]\n${body.stderr.trimEnd()}`);
+      if (stderr) sections.push(`[stderr]\n${stderr}`);
       output.textContent = sections.join('\n\n') || '(Command completed with no output.)';
       output.dataset.error = String(Number(body.exitCode || 0) !== 0 || Boolean(body.timedOut));
       $('powershellState').textContent = body.timedOut ? 'Timed out' : 'Completed';
@@ -211,6 +212,13 @@
       run.disabled = false;
       input.disabled = false;
     }
+  }
+
+  function cleanPowerShellStderr(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (text.startsWith('#< CLIXML') && /<Obj S="progress"/i.test(text) && !/<Obj S="(?!progress)[^"]+"/i.test(text)) return '';
+    return text;
   }
 
   function updateBrowserCopy() {
