@@ -1,0 +1,690 @@
+name: Apply managed Chrome browser refactor
+
+on:
+  push:
+    branches:
+      - feature/chrome-window-browser
+    paths:
+      - '.github/workflows/chrome-refactor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chrome-window-browser
+
+      - name: Apply Chrome browser and input refactor
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'Expected fragment not found: {label}')
+              return text.replace(old, new, 1)
+
+          # ---------------- server ----------------
+          p = 'src/server.mjs'
+          text = read(p)
+          text = replace_once(text,
+              "import { BrowserEngine } from './browser-engine.mjs';",
+              "import { ChromeManager } from './chrome-manager.mjs';",
+              'server browser import')
+          text = replace_once(text,
+              "const browserEngine = new BrowserEngine(ROOT);",
+              "const chromeManager = new ChromeManager(ROOT);",
+              'server browser instance')
+
+          old_config = '''      const [secret, browser] = await Promise.all([\n        secretTransport.refreshStatus(),\n        browserEngine.refreshStatus()\n      ]);\n      return sendJson(res, 200, {\n        version: '0.4.1','''
+          new_config = '''      const [secret, chrome] = await Promise.all([\n        secretTransport.refreshStatus(),\n        chromeManager.refreshStatus()\n      ]);\n      return sendJson(res, 200, {\n        version: '0.5.0','''
+          text = replace_once(text, old_config, new_config, 'server config status')
+
+          old_browser_config = '''        browser: {\n          enabled: browser.chromeAvailable,\n          phase: browser.phase,\n          status: browser,\n          streamPath: '/api/browser/stream',\n          profile: 'dedicated-mrd-profile'\n        },'''
+          new_browser_config = '''        browser: {\n          enabled: chrome.chromeAvailable,\n          transport: 'windows-chrome-window',\n          modes: ['normal', 'incognito'],\n          defaultMode: 'incognito',\n          profile: 'existing-chrome-profile',\n          singleton: true,\n          silentLaunch: true,\n          status: chrome\n        },'''
+          text = replace_once(text, old_browser_config, new_browser_config, 'server browser config')
+
+          old_browser_routes = '''    if (url.pathname === '/api/browser/status' && req.method === 'GET') {\n      return sendJson(res, 200, await browserEngine.refreshStatus());\n    }\n\n    if (url.pathname === '/api/browser/session' && req.method === 'POST') {\n      try {\n        await browserEngine.start();\n        return sendJson(res, 200, {\n          ok: true,\n          transport: 'chromium-cdp-screencast',\n          streamPath: '/api/browser/stream',\n          status: browserEngine.status\n        });\n      } catch (error) {\n        return sendJson(res, 409, { ok: false, error: error.message, status: browserEngine.status });\n      }\n    }\n\n    if (url.pathname === '/api/browser/stop' && req.method === 'POST') {\n      const status = await browserEngine.stop({ closeChrome: false });\n      return sendJson(res, 200, { ok: true, ...status });\n    }\n'''
+          new_browser_routes = '''    if (url.pathname === '/api/chrome/status' && req.method === 'GET') {\n      return sendJson(res, 200, await chromeManager.refreshStatus());\n    }\n\n    if (url.pathname === '/api/chrome/open' && req.method === 'POST') {\n      const body = await readJsonBody(req);\n      const result = await openManagedChrome(body?.mode);\n      return sendJson(res, result.ok ? 200 : 409, result);\n    }\n\n    if (url.pathname === '/api/chrome/close' && req.method === 'POST') {\n      const result = await chromeManager.close();\n      return sendJson(res, result.ok ? 200 : 409, result);\n    }\n'''
+          text = replace_once(text, old_browser_routes, new_browser_routes, 'server browser routes')
+
+          old_app_launch = '''    const appLaunchMatch = url.pathname.match(/^\\/api\\/apps\\/([^/]+)\\/launch$/);\n    if (appLaunchMatch && req.method === 'POST') {\n      const result = await appCatalog.launch(decodeURIComponent(appLaunchMatch[1]));\n      if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();\n      return sendJson(res, result.ok ? 200 : 400, result);\n    }'''
+          new_app_launch = '''    const appLaunchMatch = url.pathname.match(/^\\/api\\/apps\\/([^/]+)\\/launch$/);\n    if (appLaunchMatch && req.method === 'POST') {\n      const appId = decodeURIComponent(appLaunchMatch[1]);\n      if (appId === 'chrome') {\n        const body = await readJsonBody(req);\n        const result = await openManagedChrome(body?.mode);\n        return sendJson(res, result.ok ? 200 : 409, result);\n      }\n      const result = await appCatalog.launch(appId);\n      if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();\n      return sendJson(res, result.ok ? 200 : 400, result);\n    }'''
+          text = replace_once(text, old_app_launch, new_app_launch, 'server app launch route')
+
+          text = replace_once(text,
+              "  if (url.pathname === '/api/browser/stream') {\n    browserEngine.handleUpgrade(req, socket, head);\n    return;\n  }\n",
+              '',
+              'server browser websocket')
+
+          old_listen = '''  const [secret, browser] = await Promise.all([\n    secretTransport.refreshStatus(true),\n    browserEngine.refreshStatus()\n  ]);\n  console.log(`Secret transport: ${secret.ready ? 'ready' : secret.phase}`);\n  console.log(`Browser Engine: ${browser.chromeAvailable ? 'Chrome ready' : browser.phase}`);'''
+          new_listen = '''  const [secret, chrome] = await Promise.all([\n    secretTransport.refreshStatus(true),\n    chromeManager.refreshStatus()\n  ]);\n  console.log(`Secret transport: ${secret.ready ? 'ready' : secret.phase}`);\n  console.log(`Managed Chrome: ${chrome.chromeAvailable ? (chrome.managed ? `ready · ${chrome.mode}` : 'ready') : 'not installed'}`);'''
+          text = replace_once(text, old_listen, new_listen, 'server startup status')
+
+          helper_anchor = '''async function handleAdminAction(action) {'''
+          helper = '''async function openManagedChrome(mode = 'incognito') {\n  const selectedMode = ['normal', 'incognito'].includes(String(mode || '').toLowerCase())\n    ? String(mode).toLowerCase()\n    : 'incognito';\n  let display = null;\n  if (runtimeState.session.privacyMode === 'secret') {\n    const secret = await secretTransport.refreshStatus(true);\n    if (!secret.ready) return { ok: false, error: secret.error || 'Secret transport is not ready for Chrome placement.' };\n    display = secret.display;\n  }\n  const result = await chromeManager.open({ mode: selectedMode, display });\n  if (result.ok) {\n    runtimeState.audio.activeMode = 'browser';\n    await writeRuntimeState(runtimeState);\n    const policy = getAudioState();\n    await audioRouter.apply(policy.effectiveDestination, { capture: true });\n    broadcast('audio', getAudioState());\n  }\n  return result;\n}\n\n'''
+          text = replace_once(text, helper_anchor, helper + helper_anchor, 'managed chrome helper')
+
+          text = replace_once(text,
+              "  try { await browserEngine.shutdown(); } catch {}\n",
+              '',
+              'server browser shutdown')
+          write(p, text)
+
+          # ---------------- index / PWA shell ----------------
+          p = 'public/index.html'
+          text = read(p).replace('?v=0.4.1', '?v=0.5.0')
+          text = text.replace('<strong>Browser Engine</strong><small>PC-powered mobile Chromium</small>', '<strong>Google Chrome</strong><small>Actual Chrome · Normal or Incognito</small>')
+          text = text.replace('<strong>Browser</strong><small>Mobile Browser Engine</small>', '<strong>Chrome</strong><small>Normal or Incognito window</small>')
+
+          text = replace_once(text,
+              '<div class="screen-heading"><strong>Desktop</strong><small>Connection setup</small></div>',
+              '<div class="screen-heading"><strong id="connectHeadingTitle">Desktop</strong><small id="connectHeadingSubtitle">Connection setup</small></div>',
+              'connect heading ids')
+          text = replace_once(text,
+              '<div class="connect-glyph">▣</div>\n        <div><div class="eyebrow">REMOTE WINDOWS</div><h2>Choose privacy first</h2><p>Your privacy mode is fixed for this connection.</p></div>',
+              '<div class="connect-glyph" id="connectHeroGlyph">▣</div>\n        <div><div class="eyebrow" id="connectHeroEyebrow">REMOTE WINDOWS</div><h2 id="connectHeroTitle">Choose privacy first</h2><p id="connectHeroText">Your privacy mode is fixed for this connection.</p></div>',
+              'connect hero ids')
+
+          privacy_close = '''      </section>\n\n      <button class="primary-cta" id="connectDesktopBtn">'''
+          browser_card = '''      </section>\n\n      <section class="connect-card" id="browserModeCard" hidden>\n        <div class="field-label">Chrome window</div>\n        <div class="segmented-control" role="radiogroup" aria-label="Chrome window mode">\n          <button type="button" data-browser-mode="normal" role="radio" aria-checked="false"><span>Normal</span></button>\n          <button type="button" data-browser-mode="incognito" role="radio" aria-checked="true" class="selected"><span>Incognito</span></button>\n        </div>\n        <div class="privacy-detail" data-mode="chrome">\n          <div class="privacy-detail-icon">◎</div>\n          <div><strong id="browserModeDetailTitle">Incognito</strong><p id="browserModeDetailText">Uses your existing Chrome profile for bookmarks and saved passwords, while website cookies remain private to this Incognito session.</p></div>\n        </div>\n      </section>\n\n      <button class="primary-cta" id="connectDesktopBtn">'''
+          text = replace_once(text, privacy_close, browser_card, 'browser mode connect card')
+
+          browser_view_pattern = re.compile(r'\n  <section class="view-layer browser-layer" id="browserView" hidden>[\s\S]*?</section>\n\n  <dialog id="audioDialog"')
+          if not browser_view_pattern.search(text):
+              raise SystemExit('Expected legacy browser view not found')
+          text = browser_view_pattern.sub('\n  <dialog id="audioDialog"', text, count=1)
+
+          browser_dialog = '''\n  <dialog id="browserModeDialog" class="sheet-dialog">\n    <div class="sheet-card">\n      <div class="sheet-handle"></div>\n      <div class="sheet-header"><div><div class="eyebrow">GOOGLE CHROME</div><h2>Open Chrome</h2></div><button type="button" id="browserModeCloseBtn" class="round-button subtle" aria-label="Close">×</button></div>\n      <p>MRD keeps one managed Chrome window. Opening the same mode focuses it; changing modes replaces it.</p>\n      <div class="segmented-control" role="radiogroup" aria-label="Chrome window mode">\n        <button type="button" data-browser-mode="normal" role="radio" aria-checked="false"><span>Normal</span></button>\n        <button type="button" data-browser-mode="incognito" role="radio" aria-checked="true" class="selected"><span>Incognito</span></button>\n      </div>\n      <p class="sheet-note" id="browserModeDialogNote">Incognito uses your existing Chrome profile foundation without inheriting normal website cookies.</p>\n      <button type="button" class="primary-cta" id="browserModeOpenBtn"><span>Open Chrome</span><span>›</span></button>\n    </div>\n  </dialog>\n'''
+          text = replace_once(text, '\n  <dialog id="audioDialog"', browser_dialog + '\n  <dialog id="audioDialog"', 'browser mode dialog')
+          text = text.replace('  <script src="/browser-engine.js?v=0.5.0" defer></script>\n', '')
+          text = replace_once(text,
+              '  <script src="/app.js?v=0.5.0" defer></script>\n',
+              '  <script src="/app.js?v=0.5.0" defer></script>\n  <script src="/chrome-window.js?v=0.5.0" defer></script>\n',
+              'chrome client script')
+          write(p, text)
+
+          # ---------------- app.js small integration + Guacamole mode fix ----------------
+          p = 'public/app.js'
+          text = read(p)
+          text = replace_once(text,
+              "  browserView: $('browserView'), browserAudioBtn: $('browserAudioBtn'), browserAudioLabel: $('browserAudioLabel'),\n",
+              '',
+              'remove legacy browser refs')
+          text = replace_once(text,
+              "let inputMode = localStorage.getItem('mrdInputMode') === 'pointer' ? 'pointer' : 'touch';\n",
+              "let inputMode = localStorage.getItem('mrdInputMode') === 'pointer' ? 'pointer' : 'touch';\nlet guacNativeTouchSupport = null;\n",
+              'guac touch support state')
+          text = replace_once(text,
+              "  app.browserAudioBtn.addEventListener('click', () => openAudioDialog('browser'));\n",
+              '',
+              'legacy browser audio button')
+          text = replace_once(text,
+              "  document.querySelectorAll('[data-close-view]').forEach(btn => btn.addEventListener('click', closeBrowserPreview));\n",
+              '',
+              'legacy browser close binding')
+
+          old_probe = '''    updateGuacScope(scope, () => {\n      scope.menu.inputMethod = 'text';\n      scope.menu.emulateAbsoluteMouse = inputMode === 'touch';\n      if ('shown' in scope.menu) scope.menu.shown = false;\n    });'''
+          new_probe = '''    updateGuacScope(scope, () => {\n      scope.menu.inputMethod = 'text';\n      const reported = Number(scope.client?.multiTouchSupport || 0);\n      if (reported > 0) guacNativeTouchSupport = reported;\n      if (inputMode === 'pointer') {\n        if (scope.client) scope.client.multiTouchSupport = 0;\n        scope.menu.emulateAbsoluteMouse = false;\n      } else {\n        if (scope.client && guacNativeTouchSupport != null) scope.client.multiTouchSupport = guacNativeTouchSupport;\n        scope.menu.emulateAbsoluteMouse = true;\n      }\n      if ('shown' in scope.menu) scope.menu.shown = false;\n    });'''
+          text = replace_once(text, old_probe, new_probe, 'guac probe input mode')
+
+          old_apply = '''  updateGuacScope(scope, () => {\n    scope.menu.emulateAbsoluteMouse = inputMode === 'touch';\n    scope.menu.inputMethod = 'text';\n    if ('shown' in scope.menu) scope.menu.shown = false;\n  });'''
+          new_apply = '''  updateGuacScope(scope, () => {\n    scope.menu.inputMethod = 'text';\n    const reported = Number(scope.client?.multiTouchSupport || 0);\n    if (reported > 0) guacNativeTouchSupport = reported;\n    if (inputMode === 'pointer') {\n      if (scope.client) scope.client.multiTouchSupport = 0;\n      scope.menu.emulateAbsoluteMouse = false;\n    } else {\n      if (scope.client && guacNativeTouchSupport != null) scope.client.multiTouchSupport = guacNativeTouchSupport;\n      scope.menu.emulateAbsoluteMouse = true;\n    }\n    if ('shown' in scope.menu) scope.menu.shown = false;\n  });'''
+          text = replace_once(text, old_apply, new_apply, 'guac apply input mode')
+          text = text.replace("showToast(inputMode === 'touch' ? 'Direct touch input' : 'Precision pointer input');", "showToast(inputMode === 'touch' ? 'Direct touch input' : 'Trackpad pointer input');")
+
+          legacy_browser_funcs = re.compile(r'\nfunction openBrowserPreview\(\) \{[\s\S]*?\n\}\n\nfunction closeBrowserPreview\(\) \{[\s\S]*?\n\}\n', re.M)
+          if not legacy_browser_funcs.search(text):
+              raise SystemExit('Expected legacy browser preview functions not found')
+          text = legacy_browser_funcs.sub('\n', text, count=1)
+
+          text = replace_once(text,
+              "  app.browserAudioLabel.textContent = audioLabels[browserDestination] || 'Mobile';\n",
+              "  const chromeSurface = document.body.classList.contains('mrd-chrome-surface');\n  if (chromeSurface) {\n    const browserLabel = audioLabels[browserDestination] || 'Mobile';\n    app.surfaceAudioLabel.textContent = browserLabel;\n    app.dockAudioLabel.textContent = browserLabel;\n  }\n",
+              'surface browser audio label')
+
+          export_anchor = '''function openAudioDialog(mode) {'''
+          export_block = '''window.MRDAudio = { open: mode => openAudioDialog(mode) };\n\n'''
+          text = replace_once(text, export_anchor, export_block + export_anchor, 'audio dialog export')
+          write(p, text)
+
+          # ---------------- managed Chrome PWA client ----------------
+          chrome_client = r'''(() => {
+            const $ = id => document.getElementById(id);
+            const state = {
+              mode: localStorage.getItem('mrdChromeMode') === 'normal' ? 'normal' : 'incognito',
+              autoTimer: null,
+              launchCallback: null,
+              chromeSurface: false
+            };
+
+            renderMode();
+            bind();
+            window.MRDChrome = {
+              openChooser,
+              launch,
+              getMode: () => state.mode,
+              setSurfaceActive
+            };
+
+            function bind() {
+              $('browserBtn')?.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                setConnectIntent('browser');
+                $('connectView').hidden = false;
+                document.body.style.overflow = 'hidden';
+              }, true);
+
+              $('desktopBtn')?.addEventListener('click', () => setConnectIntent('desktop'), true);
+
+              $('connectDesktopBtn')?.addEventListener('click', () => {
+                if (($('connectView')?.dataset.intent || 'desktop') === 'browser') armAutoLaunch();
+              }, true);
+
+              document.querySelectorAll('[data-browser-mode]').forEach(button => {
+                button.addEventListener('click', () => selectMode(button.dataset.browserMode));
+              });
+
+              $('browserModeOpenBtn')?.addEventListener('click', () => void launch(state.mode, state.launchCallback));
+              $('browserModeCloseBtn')?.addEventListener('click', () => $('browserModeDialog')?.close());
+
+              $('commandBrowser')?.addEventListener('click', event => {
+                if ($('sessionView')?.hidden) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                openChooser(showChromeSurface);
+              }, true);
+
+              $('appsList')?.addEventListener('click', event => {
+                const card = event.target.closest('.app-card');
+                if (!card || card.dataset.appId !== 'chrome') return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                openChooser(showChromeSurface);
+              }, true);
+
+              for (const id of ['surfaceAudioBtn', 'dockAudioBtn']) {
+                $(id)?.addEventListener('click', event => {
+                  if (!state.chromeSurface) return;
+                  event.preventDefault();
+                  event.stopImmediatePropagation();
+                  window.MRDAudio?.open?.('browser');
+                }, true);
+              }
+
+              for (const id of ['commandDesktop', 'commandApps', 'commandAdmin']) {
+                $(id)?.addEventListener('click', () => setSurfaceActive(false), true);
+              }
+
+              $('appsList')?.addEventListener('click', event => {
+                const card = event.target.closest('.app-card');
+                if (card && card.dataset.appId !== 'chrome') setSurfaceActive(false);
+              }, true);
+
+              $('confirmDialog')?.addEventListener('close', () => {
+                if ($('confirmDialog')?.returnValue !== 'confirm') return;
+                if (($('confirmTitle')?.textContent || '').startsWith('Disconnect')) {
+                  void closeManagedChrome();
+                  setSurfaceActive(false);
+                }
+              });
+            }
+
+            function setConnectIntent(intent) {
+              const browser = intent === 'browser';
+              const view = $('connectView');
+              if (view) view.dataset.intent = browser ? 'browser' : 'desktop';
+              if ($('browserModeCard')) $('browserModeCard').hidden = !browser;
+              if ($('connectHeadingTitle')) $('connectHeadingTitle').textContent = browser ? 'Google Chrome' : 'Desktop';
+              if ($('connectHeadingSubtitle')) $('connectHeadingSubtitle').textContent = browser ? 'Chrome connection setup' : 'Connection setup';
+              if ($('connectHeroGlyph')) $('connectHeroGlyph').textContent = browser ? '◎' : '▣';
+              if ($('connectHeroEyebrow')) $('connectHeroEyebrow').textContent = browser ? 'REMOTE CHROME' : 'REMOTE WINDOWS';
+              if ($('connectHeroTitle')) $('connectHeroTitle').textContent = browser ? 'Choose privacy and Chrome mode' : 'Choose privacy first';
+              if ($('connectHeroText')) $('connectHeroText').textContent = browser
+                ? 'MRD connects the desktop transport, then silently opens or focuses one managed Chrome window.'
+                : 'Your privacy mode is fixed for this connection.';
+              const label = $('connectDesktopBtn')?.querySelector('span');
+              const pc = $('pcName')?.textContent?.trim() || 'Home PC';
+              if (label) label.textContent = browser ? `Connect & open Chrome` : `Connect to ${pc}`;
+              renderMode();
+            }
+
+            function selectMode(mode) {
+              if (!['normal', 'incognito'].includes(mode)) return;
+              state.mode = mode;
+              localStorage.setItem('mrdChromeMode', mode);
+              renderMode();
+            }
+
+            function renderMode() {
+              document.querySelectorAll('[data-browser-mode]').forEach(button => {
+                const selected = button.dataset.browserMode === state.mode;
+                button.classList.toggle('selected', selected);
+                button.setAttribute('aria-checked', String(selected));
+              });
+              const normal = state.mode === 'normal';
+              if ($('browserModeDetailTitle')) $('browserModeDetailTitle').textContent = normal ? 'Normal' : 'Incognito';
+              if ($('browserModeDetailText')) $('browserModeDetailText').textContent = normal
+                ? 'Uses your existing Chrome profile, including normal website cookies and signed-in sessions.'
+                : 'Uses your existing Chrome profile for bookmarks and saved passwords, while website cookies remain private to this Incognito session.';
+              if ($('browserModeDialogNote')) $('browserModeDialogNote').textContent = normal
+                ? 'Normal mode carries over your existing website logins and browsing state.'
+                : 'Incognito uses your existing Chrome profile foundation without inheriting normal website cookies.';
+            }
+
+            function openChooser(callback = showChromeSurface) {
+              state.launchCallback = callback;
+              renderMode();
+              $('browserModeDialog')?.showModal();
+            }
+
+            function armAutoLaunch() {
+              clearInterval(state.autoTimer);
+              const deadline = Date.now() + 90000;
+              state.autoTimer = setInterval(() => {
+                if (Date.now() > deadline) {
+                  clearInterval(state.autoTimer);
+                  state.autoTimer = null;
+                  return;
+                }
+                if ($('sessionView')?.hidden) return;
+                const secret = document.body.classList.contains('mrd-secret-active');
+                const secretFrame = $('secretFrame');
+                const ready = secret
+                  ? Boolean(secretFrame && !secretFrame.hidden && secretFrame.getAttribute('src'))
+                  : $('sessionConnectionText')?.classList.contains('ready');
+                if (!ready) return;
+                clearInterval(state.autoTimer);
+                state.autoTimer = null;
+                void launch(state.mode, showChromeSurface);
+              }, 250);
+            }
+
+            async function launch(mode = state.mode, callback = showChromeSurface) {
+              selectMode(mode);
+              const button = $('browserModeOpenBtn');
+              if (button) button.disabled = true;
+              toast(state.mode === 'incognito' ? 'Opening Incognito Chrome…' : 'Opening Chrome…');
+              try {
+                const result = await fetchJson('/api/chrome/open', {
+                  method: 'POST',
+                  body: JSON.stringify({ mode: state.mode })
+                });
+                $('browserModeDialog')?.close();
+                setSurfaceActive(true);
+                await setActiveAudio('browser');
+                (callback || showChromeSurface)(result);
+                toast(result.action === 'focused' ? 'Chrome focused' : `${state.mode === 'incognito' ? 'Incognito ' : ''}Chrome opened`);
+                return result;
+              } catch (error) {
+                toast(error.message);
+                return null;
+              } finally {
+                if (button) button.disabled = false;
+                state.launchCallback = null;
+              }
+            }
+
+            function showChromeSurface(result = null) {
+              if ($('sessionView')?.hidden) return;
+              $('sessionMenu').hidden = true;
+              $('appsMenu').hidden = true;
+              $('adminMenu').hidden = true;
+              $('surfaceTitle').textContent = state.mode === 'incognito' ? 'Chrome · Incognito' : 'Google Chrome';
+              const secret = document.body.classList.contains('mrd-secret-active');
+              $('surfaceSubtitle').textContent = secret ? 'Secret virtual display' : 'MRD Desktop';
+              $('surfaceToolbar').hidden = false;
+              $('surfaceDock').hidden = false;
+              if (secret && $('secretFrame')) $('secretFrame').hidden = false;
+              setSurfaceActive(true);
+            }
+
+            function setSurfaceActive(active) {
+              state.chromeSurface = Boolean(active);
+              document.body.classList.toggle('mrd-chrome-surface', state.chromeSurface);
+              if (!state.chromeSurface) void setActiveAudio('desktop');
+              void refreshSurfaceAudioLabel();
+            }
+
+            async function refreshSurfaceAudioLabel() {
+              if (!state.chromeSurface) return;
+              try {
+                const audio = await fetchJson('/api/audio');
+                const labels = { desktop:'Desktop', mobile:'Mobile', both:'Both', muted:'Muted' };
+                const label = labels[audio.browserMode] || 'Mobile';
+                if ($('surfaceAudioLabel')) $('surfaceAudioLabel').textContent = label;
+                if ($('dockAudioLabel')) $('dockAudioLabel').textContent = label;
+              } catch {}
+            }
+
+            async function setActiveAudio(activeMode) {
+              try {
+                await fetchJson('/api/audio', { method:'PUT', body:JSON.stringify({ activeMode }) });
+              } catch {}
+              await refreshSurfaceAudioLabel();
+            }
+
+            async function closeManagedChrome() {
+              try { await fetch('/api/chrome/close', { method:'POST', cache:'no-store' }); } catch {}
+            }
+
+            async function fetchJson(url, options={}) {
+              const response = await fetch(url, {
+                cache:'no-store',
+                ...options,
+                headers:{ Accept:'application/json', ...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.headers || {}) }
+              });
+              let body = {};
+              try { body = await response.json(); } catch {}
+              if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
+              return body;
+            }
+
+            function toast(text) {
+              const node = $('toast');
+              if (!node) return;
+              node.textContent = text;
+              node.classList.add('show');
+              clearTimeout(toast.timer);
+              toast.timer = setTimeout(() => node.classList.remove('show'), 3200);
+            }
+          })();
+          '''
+          write('public/chrome-window.js', chrome_client)
+
+          # ---------------- Secret input: true trackpad mode ----------------
+          p = 'src/secret-transport.mjs'
+          text = read(p)
+          text = replace_once(text,
+              "    const allowed = new Set(['move', 'down', 'up', 'wheel', 'text', 'key']);",
+              "    const allowed = new Set(['move', 'down', 'up', 'wheel', 'relative-move', 'relative-wheel', 'button', 'text', 'key']);",
+              'secret allowed input types')
+          old_payload = '''    if (['move', 'down', 'up', 'wheel'].includes(message.type)) {\n      payload.x = this.display.x + Math.round(clamp01(Number(message.x)) * Math.max(1, this.display.width - 1));\n      payload.y = this.display.y + Math.round(clamp01(Number(message.y)) * Math.max(1, this.display.height - 1));\n    }\n    if (message.type === 'down' || message.type === 'up') payload.button = ['left', 'right', 'middle'].includes(message.button) ? message.button : 'left';\n    if (message.type === 'wheel') payload.delta = Math.max(-1200, Math.min(1200, Math.round(Number(message.delta) || 0)));'''
+          new_payload = '''    if (['move', 'down', 'up', 'wheel'].includes(message.type)) {\n      payload.x = this.display.x + Math.round(clamp01(Number(message.x)) * Math.max(1, this.display.width - 1));\n      payload.y = this.display.y + Math.round(clamp01(Number(message.y)) * Math.max(1, this.display.height - 1));\n    }\n    if (message.type === 'down' || message.type === 'up') payload.button = ['left', 'right', 'middle'].includes(message.button) ? message.button : 'left';\n    if (message.type === 'wheel') payload.delta = Math.max(-1200, Math.min(1200, Math.round(Number(message.delta) || 0)));\n    if (message.type === 'relative-move') {\n      payload.dx = Math.max(-240, Math.min(240, Math.round(Number(message.dx) || 0)));\n      payload.dy = Math.max(-240, Math.min(240, Math.round(Number(message.dy) || 0)));\n    }\n    if (message.type === 'relative-wheel') payload.delta = Math.max(-1200, Math.min(1200, Math.round(Number(message.delta) || 0)));\n    if (message.type === 'button') {\n      payload.button = ['left', 'right', 'middle'].includes(message.button) ? message.button : 'left';\n      payload.down = Boolean(message.down);\n    }'''
+          text = replace_once(text, old_payload, new_payload, 'secret relative payload')
+          write(p, text)
+
+          p = 'scripts/secret-input-worker.ps1'
+          text = read(p)
+          text = replace_once(text,
+              '    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;',
+              '    const uint MOUSEEVENTF_MOVE = 0x0001;\n    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;',
+              'relative mouse flag')
+          text = replace_once(text,
+              '''    public static void Move(int x, int y) {\n        SetCursorPos(x, y);\n    }\n''',
+              '''    public static void Move(int x, int y) {\n        SetCursorPos(x, y);\n    }\n\n    public static void MoveRelative(int dx, int dy) {\n        INPUT input = new INPUT {\n            type = INPUT_MOUSE,\n            U = new InputUnion { mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE } }\n        };\n        SendInput(1, new [] { input }, Marshal.SizeOf(typeof(INPUT)));\n    }\n''',
+              'relative move method')
+          switch_anchor = '''            'wheel' {\n                [MrdInput]::Move([int]$msg.x, [int]$msg.y)\n                [MrdInput]::Wheel([int]$msg.delta)\n            }'''
+          switch_new = '''            'wheel' {\n                [MrdInput]::Move([int]$msg.x, [int]$msg.y)\n                [MrdInput]::Wheel([int]$msg.delta)\n            }\n            'relative-move' {\n                [MrdInput]::MoveRelative([int]$msg.dx, [int]$msg.dy)\n            }\n            'relative-wheel' {\n                [MrdInput]::Wheel([int]$msg.delta)\n            }\n            'button' {\n                [MrdInput]::Button([string]$msg.button, [bool]$msg.down)\n            }'''
+          text = replace_once(text, switch_anchor, switch_new, 'secret worker relative cases')
+          write(p, text)
+
+          p = 'public/secret-client.js'
+          text = read(p)
+          text = replace_once(text,
+              "    pointer: null,\n",
+              "    pointer: null,\n    pointers: new Map(),\n    pointerGesture: null,\n",
+              'secret pointer state')
+          text = text.replace("toast(state.inputMode === 'touch' ? 'Direct touch input' : 'Precision pointer input');", "toast(state.inputMode === 'touch' ? 'Direct touch input' : 'Trackpad pointer input');")
+
+          old_pointer_funcs = re.compile(r'''  function onPointerDown\(event\) \{[\s\S]*?  function onPointerUp\(event\) \{[\s\S]*?    state\.pointer = null;\n  \}\n''')
+          match = old_pointer_funcs.search(text)
+          if not match:
+              raise SystemExit('Expected Secret pointer functions not found')
+          new_pointer_funcs = r'''  function onPointerDown(event) {
+    if (!state.active || !state.ready) return;
+    event.preventDefault();
+    frame.setPointerCapture?.(event.pointerId);
+    const p = pointFromEvent(event);
+
+    if (state.inputMode === 'touch') {
+      state.pointer = { id:event.pointerId, startX:event.clientX, startY:event.clientY, lastY:event.clientY, moved:false, p };
+      return;
+    }
+
+    const now = performance.now();
+    state.pointers.set(event.pointerId, {
+      id:event.pointerId,
+      startX:event.clientX, startY:event.clientY,
+      lastX:event.clientX, lastY:event.clientY,
+      downAt:now
+    });
+    if (!state.pointerGesture) state.pointerGesture = { startedAt:now, twoFinger:false, moved:false, dragging:false, rightClicked:false, lastCentroid:null };
+    if (state.pointers.size >= 2) {
+      state.pointerGesture.twoFinger = true;
+      state.pointerGesture.lastCentroid = pointerCentroid();
+    }
+  }
+
+  function onPointerMove(event) {
+    if (!state.active || !state.ready) return;
+    event.preventDefault();
+
+    if (state.inputMode === 'touch') {
+      if (!state.pointer || state.pointer.id !== event.pointerId) return;
+      const p = pointFromEvent(event);
+      const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY);
+      if (distance > 8) state.pointer.moved = true;
+      if (state.pointer.moved) {
+        const dy = state.pointer.lastY - event.clientY;
+        if (Math.abs(dy) >= 3) sendInput({ type:'wheel', delta:Math.round(dy * 6), ...p });
+        state.pointer.lastY = event.clientY;
+      }
+      return;
+    }
+
+    const point = state.pointers.get(event.pointerId);
+    if (!point || !state.pointerGesture) return;
+    const dx = event.clientX - point.lastX;
+    const dy = event.clientY - point.lastY;
+    point.lastX = event.clientX;
+    point.lastY = event.clientY;
+
+    const total = Math.hypot(event.clientX - point.startX, event.clientY - point.startY);
+    if (total > 5) state.pointerGesture.moved = true;
+
+    if (state.pointers.size >= 2 || state.pointerGesture.twoFinger) {
+      const centroid = pointerCentroid();
+      const previous = state.pointerGesture.lastCentroid || centroid;
+      const scrollY = previous.y - centroid.y;
+      state.pointerGesture.lastCentroid = centroid;
+      if (Math.abs(scrollY) >= 1.5) {
+        state.pointerGesture.moved = true;
+        sendInput({ type:'relative-wheel', delta:Math.round(scrollY * 14) });
+      }
+      return;
+    }
+
+    const held = performance.now() - state.pointerGesture.startedAt;
+    if (!state.pointerGesture.dragging && held > 360 && total > 3) {
+      state.pointerGesture.dragging = true;
+      sendInput({ type:'button', button:'left', down:true });
+    }
+    if (Math.abs(dx) >= .35 || Math.abs(dy) >= .35) {
+      sendInput({ type:'relative-move', dx:Math.round(dx * 1.55), dy:Math.round(dy * 1.55) });
+    }
+  }
+
+  function onPointerUp(event) {
+    if (!state.active) return;
+    event.preventDefault();
+
+    if (state.inputMode === 'touch') {
+      if (!state.pointer || state.pointer.id !== event.pointerId) return;
+      const p = pointFromEvent(event);
+      if (!state.pointer.moved) {
+        sendInput({ type:'move', ...p });
+        sendInput({ type:'down', button:'left', ...p });
+        sendInput({ type:'up', button:'left', ...p });
+      }
+      state.pointer = null;
+      return;
+    }
+
+    const gesture = state.pointerGesture;
+    const countBefore = state.pointers.size;
+    const point = state.pointers.get(event.pointerId);
+    if (!gesture || !point) return;
+
+    if (gesture.dragging) {
+      sendInput({ type:'button', button:'left', down:false });
+      gesture.dragging = false;
+    } else if (gesture.twoFinger && !gesture.moved && !gesture.rightClicked && countBefore >= 2) {
+      sendInput({ type:'button', button:'right', down:true });
+      sendInput({ type:'button', button:'right', down:false });
+      gesture.rightClicked = true;
+    } else if (!gesture.twoFinger && !gesture.moved) {
+      sendInput({ type:'button', button:'left', down:true });
+      sendInput({ type:'button', button:'left', down:false });
+    }
+
+    state.pointers.delete(event.pointerId);
+    if (state.pointers.size === 0) state.pointerGesture = null;
+    else state.pointerGesture.lastCentroid = pointerCentroid();
+  }
+
+  function pointerCentroid() {
+    const points = [...state.pointers.values()];
+    if (!points.length) return { x:0, y:0 };
+    return {
+      x: points.reduce((sum, point) => sum + point.lastX, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.lastY, 0) / points.length
+    };
+  }
+'''
+          text = text[:match.start()] + new_pointer_funcs + text[match.end():]
+          write(p, text)
+
+          # ---------------- app launcher Chrome copy/safety ----------------
+          p = 'src/windows-apps.mjs'
+          text = read(p)
+          text = text.replace("{ id: 'chrome', name: 'Google Chrome', category: 'Internet', icon: '◎', description: 'Dedicated MRD Chrome window' }", "{ id: 'chrome', name: 'Google Chrome', category: 'Internet', icon: '◎', description: 'One MRD-managed Normal or Incognito window' }")
+          text = replace_once(text,
+              "  if (id === 'update-mrd') return launchMrdUpdater();\n\n  const app = APPS.find(item => item.id === id);",
+              "  if (id === 'update-mrd') return launchMrdUpdater();\n  if (id === 'chrome') return { ok: false, error: 'Chrome is controlled by the MRD managed Chrome window endpoint.' };\n\n  const app = APPS.find(item => item.id === id);",
+              'windows app chrome safety')
+          write(p, text)
+
+          p = 'public/extras.js'
+          text = read(p).replace("if (small) small.textContent = 'PC-powered mobile Chromium';", "if (small) small.textContent = 'Actual Chrome · Normal or Incognito';")
+          text = text.replace("if (small) small.textContent = 'Mobile Browser Engine';", "if (small) small.textContent = 'Normal or Incognito window';")
+          write(p, text)
+
+          # ---------------- version/cache/checks ----------------
+          p = 'package.json'
+          text = read(p).replace('"version": "0.4.1"', '"version": "0.5.0"', 1)
+          text = text.replace('PC-powered mobile Chromium, app launcher, media controls, and host diagnostics.', 'managed Google Chrome windows, app launcher, and host diagnostics.')
+          text = text.replace('node --check src/browser-engine.mjs && ', '')
+          text = text.replace('node --check public/browser-engine.js && ', '')
+          text = text.replace('node --check src/secret-transport.mjs && ', 'node --check src/secret-transport.mjs && node --check src/chrome-manager.mjs && ')
+          text = text.replace('node --check public/app.js && ', 'node --check public/app.js && node --check public/chrome-window.js && ')
+          write(p, text)
+
+          p = 'package-lock.json'
+          text = read(p).replace('"version": "0.4.1"', '"version": "0.5.0"')
+          write(p, text)
+
+          p = 'public/sw.js'
+          text = read(p).replace('0.4.1', '0.5.0')
+          text = text.replace("'/app.js?v=0.5.0', '/browser-engine.js?v=0.5.0', '/secret-client.js?v=0.5.0',", "'/app.js?v=0.5.0', '/chrome-window.js?v=0.5.0', '/secret-client.js?v=0.5.0',")
+          write(p, text)
+
+          p = 'scripts/smoke-server.mjs'
+          text = read(p)
+          text = text.replace("  assert(html.includes(`/browser-engine.js?v=${pkg.version}`), 'Browser Engine client version mismatch');", "  assert(html.includes(`/chrome-window.js?v=${pkg.version}`), 'Managed Chrome client version mismatch');\n  assert(!html.includes('/browser-engine.js'), 'Legacy Browser Engine client should not be loaded');")
+          text = text.replace("  assert(config.desktop?.enabled === true, 'Desktop must be enabled');", "  assert(config.desktop?.enabled === true, 'Desktop must be enabled');\n  assert(Array.isArray(config.browser?.modes) && config.browser.modes.includes('incognito') && config.browser.modes.includes('normal'), 'Chrome modes missing');\n  assert(config.browser?.transport === 'windows-chrome-window', 'Managed Chrome transport missing');")
+          write(p, text)
+
+          p = 'scripts/audit-static.mjs'
+          text = read(p)
+          audit_anchor = "if (!server.includes(`version: '${version}'`) && !server.includes(`version: \\\"${version}\\\"`)) fail(`server /api/config version is not ${version}`);"
+          if audit_anchor not in text:
+              audit_anchor = "if (!server.includes(`version: '${version}'`) && !server.includes(`version: \"${version}\"`)) fail(`server /api/config version is not ${version}`);"
+          addition = audit_anchor + "\nif (index.includes('/browser-engine.js') || server.includes('BrowserEngine')) fail('legacy Browser Engine remains wired into MRD');\nif (!index.includes('/chrome-window.js') || !server.includes('/api/chrome/open')) fail('managed Chrome window client/server wiring is missing');"
+          text = replace_once(text, audit_anchor, addition, 'static managed Chrome assertions')
+          write(p, text)
+
+          # ---------------- live audit ----------------
+          p = 'scripts/audit-live.ps1'
+          text = read(p)
+          pattern = re.compile(r'# Browser Engine prerequisites and optional deep start/stop[\s\S]*?# Secret prerequisites and optional deep start/stop')
+          replacement = r'''# Managed Chrome prerequisites and optional deep open/close
+$chrome = Find-Chrome
+if ($chrome) { Add-Result 'Google Chrome' 'PASS' $chrome }
+else { Add-Result 'Google Chrome' 'FAIL' 'Chrome executable was not found.' }
+
+$chromeStatus = Try-Json "$BaseUrl/api/chrome/status"
+if ($chromeStatus -and $chromeStatus.chromeAvailable) {
+    Add-Result 'Managed Chrome status' 'PASS' ("managed={0}; mode={1}; profile={2}" -f $chromeStatus.managed, $chromeStatus.mode, $chromeStatus.profileDirectory)
+} else { Add-Result 'Managed Chrome status' 'FAIL' 'Managed Chrome controller does not report Chrome available.' }
+
+if ($Deep -and $chromeStatus -and $chromeStatus.chromeAvailable) {
+    $chromeStart = Try-Json "$BaseUrl/api/chrome/open" 'POST' @{ mode = 'incognito' }
+    if ($chromeStart -and $chromeStart.ok) {
+        Add-Result 'Managed Chrome deep open' 'PASS' ("action={0}; mode={1}" -f $chromeStart.action, $chromeStart.mode)
+        $chromeAgain = Try-Json "$BaseUrl/api/chrome/open" 'POST' @{ mode = 'incognito' }
+        if ($chromeAgain -and $chromeAgain.ok -and $chromeAgain.action -eq 'focused') {
+            Add-Result 'Managed Chrome singleton' 'PASS' 'Second open focused the existing MRD Chrome window.'
+        } else { Add-Result 'Managed Chrome singleton' 'FAIL' 'Second open did not focus the existing managed Chrome window.' }
+        $null = Try-Json "$BaseUrl/api/chrome/close" 'POST' @{}
+    } else { Add-Result 'Managed Chrome deep open' 'FAIL' 'POST /api/chrome/open failed.' }
+}
+
+# Secret prerequisites and optional deep start/stop'''
+          if not pattern.search(text):
+              raise SystemExit('Expected Browser Engine live audit block not found')
+          text = pattern.sub(replacement, text, count=1)
+          write(p, text)
+
+          # ---------------- env docs ----------------
+          p = '.env.example'
+          text = read(p)
+          browser_env = re.compile(r'# Dedicated PC-powered mobile Chromium Browser Engine\.[\s\S]*?# Optional development override:')
+          env_replacement = '''# Managed Google Chrome window. MRD uses your existing Chrome profile and\n# detects the most recently used profile directory from Chrome Local State.\n# Optional overrides:\n# MRD_CHROME_EXE=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\n# MRD_CHROME_PROFILE=Default\n\n# Optional development override:'''
+          if not browser_env.search(text):
+              raise SystemExit('Expected Browser Engine env block not found')
+          text = browser_env.sub(env_replacement, text, count=1)
+          write(p, text)
+
+          # Remove old Browser Engine implementation. ChromeManager owns browser launch now.
+          Path('public/browser-engine.js').unlink(missing_ok=True)
+          Path('src/browser-engine.mjs').unlink(missing_ok=True)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate refactor
+        run: |
+          npm ci
+          npm run check
+
+      - name: Parse PowerShell worker on Windows-compatible parser
+        shell: pwsh
+        run: |
+          $errors = @()
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'scripts/secret-input-worker.ps1'), [ref]$null, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+
+      - name: Commit refactor
+        shell: bash
+        run: |
+          git config user.name "MRD Refactor Bot"
+          git config user.email "145463179+Clatlas@users.noreply.github.com"
+          git rm -f .github/workflows/chrome-refactor.yml
+          git add -A
+          git commit -m "Replace Browser Engine with managed Chrome window"
+          git push origin HEAD:feature/chrome-window-browser
