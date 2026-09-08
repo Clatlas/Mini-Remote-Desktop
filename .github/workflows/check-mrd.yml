@@ -30,6 +30,7 @@ jobs:
         shell: pwsh
         run: |
           $files = @(
+            'scripts/audit-live.ps1',
             'scripts/setup-secret-transport.ps1',
             'scripts/secret-input-worker.ps1',
             'scripts/start-all.ps1',
