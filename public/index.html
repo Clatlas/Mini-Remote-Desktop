@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="MRD" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icon.svg" />
-  <link rel="stylesheet" href="/styles.css?v=0.3.0" />
-  <link rel="stylesheet" href="/iphone-safearea.css?v=0.3.0" />
+  <link rel="stylesheet" href="/styles.css?v=0.4.0" />
+  <link rel="stylesheet" href="/iphone-safearea.css?v=0.4.0" />
   <title>Mini Remote Desktop</title>
 </head>
 <body>
@@ -54,7 +54,7 @@
         </button>
         <button class="primary-launch-card" id="browserBtn">
           <span class="launch-icon">◎</span>
-          <span class="launch-copy"><strong>Browser Engine</strong><small>Mobile browser transport preview</small></span>
+          <span class="launch-copy"><strong>Browser Engine</strong><small>PC-powered mobile Chromium</small></span>
           <span class="chevron">›</span>
         </button>
       </div>
@@ -137,7 +137,7 @@
 
           <div class="hub-section-title"><h3>Open</h3><span>Choose a destination</span></div>
           <div class="command-grid">
-            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Browser</strong><small>Dedicated Chrome window</small></span></button>
+            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Browser</strong><small>Mobile Browser Engine</small></span></button>
             <button class="command-card" id="commandApps"><span class="command-icon">▦</span><span><strong>Apps</strong><small>Pinned Windows apps</small></span></button>
             <button class="command-card" id="commandDesktop"><span class="command-icon">▣</span><span><strong>Full Desktop</strong><small>Complete Windows view</small></span></button>
             <button class="command-card" id="commandAdmin"><span class="command-icon">⚙</span><span><strong>MRD Admin</strong><small>Host & service tools</small></span></button>
@@ -189,16 +189,15 @@
   <section class="view-layer browser-layer" id="browserView" hidden>
     <header class="screen-topbar">
       <button class="round-button back" data-close-view="browser" aria-label="Back">‹</button>
-      <div class="screen-heading"><strong>Browser Engine</strong><small>Preview</small></div>
+      <div class="screen-heading"><strong>Browser Engine</strong><small>PC-powered · mobile viewport</small></div>
       <button class="toolbar-pill" id="browserAudioBtn"><span class="toolbar-pill-icon">◖</span><strong id="browserAudioLabel">Mobile</strong></button>
     </header>
     <div class="browser-preview">
       <div class="browser-preview-card">
         <div class="browser-mark">◎</div>
         <div class="eyebrow">PC-POWERED BROWSER</div>
-        <h2>Dedicated mobile transport</h2>
-        <p>The standalone Chromium streaming engine is still a separate milestone. For the working path now, connect to Desktop and choose Browser.</p>
-        <button class="primary-cta compact" id="browserToDesktopBtn"><span>Open Desktop setup</span><span>›</span></button>
+        <h2>Starting Browser Engine</h2>
+        <p>MRD is preparing its dedicated mobile Chromium session.</p>
       </div>
     </div>
   </section>
@@ -229,7 +228,10 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=0.3.0" defer></script>
-  <script src="/secret-client.js?v=0.3.1" defer></script>
+  <script src="/app.js?v=0.4.0" defer></script>
+  <script src="/browser-engine.js?v=0.4.0" defer></script>
+  <script src="/secret-client.js?v=0.4.0" defer></script>
+  <script src="/app-manager.js?v=0.4.0" defer></script>
+  <script src="/extras.js?v=0.4.0" defer></script>
 </body>
 </html>
