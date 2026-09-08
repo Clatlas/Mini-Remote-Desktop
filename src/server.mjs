@@ -9,9 +9,11 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { AudioRouter } from './audio-router.mjs';
 import { SecretTransport } from './secret-transport.mjs';
+import { BrowserEngine } from './browser-engine.mjs';
+import { AppCatalog } from './app-catalog.mjs';
+import { getGpuMetrics } from './system-metrics.mjs';
+import { installRuntimeLogging, readRuntimeLog } from './runtime-log.mjs';
 import {
-  getAppCatalog,
-  launchWindowsApp,
   restartDockerDesktop,
   restartGuacamole,
   restartTailscale
@@ -26,6 +28,7 @@ const STATE_FILE = path.join(RUNTIME_DIR, 'state.json');
 const GUAC_CONNECTION_ID_FILE = path.join(RUNTIME_DIR, 'guacamole-connection-id.txt');
 
 loadDotEnv(path.join(ROOT, '.env'));
+installRuntimeLogging(ROOT);
 
 const HOST = process.env.PC_REMOTE_HOST || '127.0.0.1';
 const PORT = Number(process.env.PC_REMOTE_PORT || 8787);
@@ -46,6 +49,8 @@ let cpuPrevious = sampleCpu();
 let runtimeState = normalizeRuntimeState(await readRuntimeState());
 const audioRouter = new AudioRouter(ROOT);
 const secretTransport = new SecretTransport(ROOT);
+const browserEngine = new BrowserEngine(ROOT);
+const appCatalog = new AppCatalog(ROOT);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -69,8 +74,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/config' && req.method === 'GET') {
-      const secret = await secretTransport.refreshStatus();
+      const [secret, browser] = await Promise.all([
+        secretTransport.refreshStatus(),
+        browserEngine.refreshStatus()
+      ]);
       return sendJson(res, 200, {
+        version: '0.4.0',
         pcName: PC_NAME,
         powerControlsEnabled: ALLOW_POWER_CONTROLS,
         desktop: {
@@ -84,7 +93,13 @@ const server = http.createServer(async (req, res) => {
             secret
           }
         },
-        browser: { enabled: false, phase: 'browser-engine-next' },
+        browser: {
+          enabled: browser.chromeAvailable,
+          phase: browser.phase,
+          status: browser,
+          streamPath: '/api/browser/stream',
+          profile: 'dedicated-mrd-profile'
+        },
         audio: {
           destinations: ['desktop', 'mobile', 'both', 'muted'],
           defaultDestination: 'mobile',
@@ -112,13 +127,63 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, ...status });
     }
 
+    if (url.pathname === '/api/browser/status' && req.method === 'GET') {
+      return sendJson(res, 200, await browserEngine.refreshStatus());
+    }
+
+    if (url.pathname === '/api/browser/session' && req.method === 'POST') {
+      try {
+        await browserEngine.start();
+        return sendJson(res, 200, {
+          ok: true,
+          transport: 'chromium-cdp-screencast',
+          streamPath: '/api/browser/stream',
+          status: browserEngine.status
+        });
+      } catch (error) {
+        return sendJson(res, 409, { ok: false, error: error.message, status: browserEngine.status });
+      }
+    }
+
+    if (url.pathname === '/api/browser/stop' && req.method === 'POST') {
+      const status = await browserEngine.stop({ closeChrome: false });
+      return sendJson(res, 200, { ok: true, ...status });
+    }
+
     if (url.pathname === '/api/apps' && req.method === 'GET') {
-      return sendJson(res, 200, { apps: getAppCatalog() });
+      return sendJson(res, 200, { apps: await appCatalog.getCatalog() });
+    }
+
+    if (url.pathname === '/api/apps/discover' && req.method === 'GET') {
+      return sendJson(res, 200, { apps: await appCatalog.discover() });
+    }
+
+    if (url.pathname === '/api/apps/pin' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const result = await appCatalog.pin(body);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    if (url.pathname === '/api/apps/order' && req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      const result = await appCatalog.reorder(body?.ids);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    if (url.pathname === '/api/apps/restore-defaults' && req.method === 'POST') {
+      const result = await appCatalog.restoreDefaults();
+      return sendJson(res, 200, result);
+    }
+
+    const appDeleteMatch = url.pathname.match(/^\/api\/apps\/([^/]+)$/);
+    if (appDeleteMatch && req.method === 'DELETE') {
+      const result = await appCatalog.remove(decodeURIComponent(appDeleteMatch[1]));
+      return sendJson(res, result.ok ? 200 : 400, result);
     }
 
     const appLaunchMatch = url.pathname.match(/^\/api\/apps\/([^/]+)\/launch$/);
     if (appLaunchMatch && req.method === 'POST') {
-      const result = await launchWindowsApp(decodeURIComponent(appLaunchMatch[1]));
+      const result = await appCatalog.launch(decodeURIComponent(appLaunchMatch[1]));
       if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
       return sendJson(res, result.ok ? 200 : 400, result);
     }
@@ -126,6 +191,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/admin/action' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const result = await handleAdminAction(body?.action);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    if (url.pathname === '/api/admin/diagnostics' && req.method === 'GET') {
+      const result = await getAdminDiagnostics(url.searchParams.get('kind'));
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 
@@ -161,13 +231,6 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 
-    if (url.pathname === '/api/browser/session' && req.method === 'POST') {
-      return sendJson(res, 501, {
-        ok: false,
-        error: 'PC-powered Chromium transport is the next implementation milestone. Use Desktop → Browser to open a dedicated Chrome window now.'
-      });
-    }
-
     if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(url.pathname, req, res);
 
     sendJson(res, 404, { error: 'Not found' });
@@ -192,6 +255,10 @@ server.on('upgrade', (req, socket, head) => {
     secretTransport.handleUpgrade('input', req, socket, head);
     return;
   }
+  if (url.pathname === '/api/browser/stream') {
+    browserEngine.handleUpgrade(req, socket, head);
+    return;
+  }
   if (!url.pathname.startsWith('/guacamole/')) {
     socket.destroy();
     return;
@@ -204,8 +271,12 @@ server.listen(PORT, HOST, async () => {
   console.log(`Guacamole proxy target: ${GUACAMOLE_ORIGIN.origin}`);
   console.log(`Power controls: ${ALLOW_POWER_CONTROLS ? 'ENABLED' : 'disabled'}`);
   console.log(`Audio router: ${audioRouter.available ? 'available' : 'not installed'}`);
-  const secret = await secretTransport.refreshStatus(true);
+  const [secret, browser] = await Promise.all([
+    secretTransport.refreshStatus(true),
+    browserEngine.refreshStatus()
+  ]);
   console.log(`Secret transport: ${secret.ready ? 'ready' : secret.phase}`);
+  console.log(`Browser Engine: ${browser.chromeAvailable ? 'Chrome ready' : browser.phase}`);
 });
 
 setInterval(async () => {
@@ -297,17 +368,64 @@ async function handleAdminAction(action) {
   if (action === 'restart-docker') return restartDockerDesktop();
   if (action === 'restart-tailscale') return restartTailscale();
   if (action === 'open-services') {
-    const result = await launchWindowsApp('services');
+    const result = await appCatalog.launch('services');
     if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
     return result;
   }
   if (action === 'open-task-manager') {
-    const result = await launchWindowsApp('task-manager');
+    const result = await appCatalog.launch('task-manager');
     if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
     return result;
   }
   if (action === 'restart-mrd') return scheduleMrdRestart();
   return { ok: false, error: 'Unsupported MRD admin action.' };
+}
+
+async function getAdminDiagnostics(kind) {
+  if (kind === 'mrd') {
+    return { ok: true, kind, title: 'MRD runtime log', text: await readRuntimeLog(ROOT, 260) };
+  }
+
+  if (kind === 'guacamole') {
+    const dockerEnv = path.join(ROOT, 'docker', '.env');
+    const composeFile = path.join(ROOT, 'docker', 'compose.guacamole.yml');
+    try {
+      const { stdout, stderr } = await execFileAsync('docker', [
+        'compose', '--env-file', dockerEnv, '-f', composeFile,
+        'logs', '--tail', '180', '--no-color', 'guacamole', 'guacd'
+      ], { windowsHide: true, timeout: 15000, maxBuffer: 2 * 1024 * 1024 });
+      return { ok: true, kind, title: 'Guacamole logs', text: String(stdout || stderr || 'No Guacamole log output.').trim() };
+    } catch (error) {
+      return { ok: false, error: String(error.stderr || error.message || '').trim() || 'Could not read Guacamole logs.' };
+    }
+  }
+
+  if (kind === 'rdp') {
+    if (process.platform !== 'win32') return { ok: false, error: 'RDP diagnostics are Windows-only.' };
+    const script = String.raw`
+$svc = Get-Service TermService -ErrorAction SilentlyContinue
+$listen = @(Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue)
+$deny = $null
+try { $deny = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -ErrorAction Stop).fDenyTSConnections } catch {}
+$connections = @(Get-CimInstance Win32_LogonSession -ErrorAction SilentlyContinue | Where-Object { $_.LogonType -eq 10 }).Count
+[pscustomobject]@{
+  Service = if ($svc) { $svc.Status.ToString() } else { 'Not found' }
+  Listening3389 = [bool]($listen.Count)
+  RdpEnabled = if ($null -eq $deny) { $null } else { $deny -eq 0 }
+  RemoteInteractiveSessions = $connections
+} | Format-List | Out-String
+`;
+    try {
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        windowsHide: true, timeout: 8000, maxBuffer: 256 * 1024
+      });
+      return { ok: true, kind, title: 'RDP status', text: stdout.trim() || 'No RDP status returned.' };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not read RDP status.' };
+    }
+  }
+
+  return { ok: false, error: 'Diagnostic kind must be mrd, guacamole, or rdp.' };
 }
 
 function scheduleSecretWindowMove() {
@@ -339,6 +457,7 @@ async function getStatus() {
   const cpu = getCpuPercent();
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
+  const gpu = await getGpuMetrics();
 
   runtimeState.lastSeenAt = now;
   runtimeState.lastKnownState = state;
@@ -361,7 +480,9 @@ async function getStatus() {
       cpuPercent: cpu,
       memoryPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
       memoryUsedGb: roundGb(totalMem - freeMem),
-      memoryTotalGb: roundGb(totalMem)
+      memoryTotalGb: roundGb(totalMem),
+      gpuPercent: gpu.gpuPercent,
+      gpuName: gpu.gpuName
     },
     detector: process.platform === 'win32' ? 'Windows LogonUI process' : (demo ? 'demo override' : 'non-Windows development fallback'),
     powerControlsEnabled: ALLOW_POWER_CONTROLS
@@ -417,7 +538,7 @@ async function updateAudioState(body) {
   return { ok: true, ...state };
 }
 
-async function readJsonBody(req, maxBytes = 16 * 1024) {
+async function readJsonBody(req, maxBytes = 64 * 1024) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -626,6 +747,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  try { await browserEngine.shutdown(); } catch {}
   try { await secretTransport.shutdown(); } catch {}
   try { await audioRouter.shutdown(); } catch {}
   server.close(() => process.exit(0));
