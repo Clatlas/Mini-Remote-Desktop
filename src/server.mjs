@@ -8,6 +8,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { AudioRouter } from './audio-router.mjs';
+import { SecretTransport } from './secret-transport.mjs';
 import {
   getAppCatalog,
   launchWindowsApp,
@@ -44,6 +45,7 @@ let lastStatusJson = '';
 let cpuPrevious = sampleCpu();
 let runtimeState = normalizeRuntimeState(await readRuntimeState());
 const audioRouter = new AudioRouter(ROOT);
+const secretTransport = new SecretTransport(ROOT);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -67,6 +69,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/config' && req.method === 'GET') {
+      const secret = await secretTransport.refreshStatus();
       return sendJson(res, 200, {
         pcName: PC_NAME,
         powerControlsEnabled: ALLOW_POWER_CONTROLS,
@@ -75,9 +78,10 @@ const server = http.createServer(async (req, res) => {
           path: await getDesktopPath(),
           privacy: {
             defaultMode: runtimeState.session.privacyMode,
-            secretSupported: false,
+            secretSupported: secret.ready,
             notSecretSupported: true,
-            secretPhase: 'console-transport-required'
+            secretPhase: secret.phase,
+            secret
           }
         },
         browser: { enabled: false, phase: 'browser-engine-next' },
@@ -90,13 +94,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/session' && req.method === 'GET') {
-      return sendJson(res, 200, getSessionState());
+      return sendJson(res, 200, await getSessionState());
     }
 
     if (url.pathname === '/api/session/prepare' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const result = await prepareSession(body);
       return sendJson(res, result.ok ? 200 : (result.code || 400), result);
+    }
+
+    if (url.pathname === '/api/secret/status' && req.method === 'GET') {
+      return sendJson(res, 200, await secretTransport.refreshStatus(true));
+    }
+
+    if (url.pathname === '/api/secret/stop' && req.method === 'POST') {
+      const status = await secretTransport.stop();
+      return sendJson(res, 200, { ok: true, ...status });
     }
 
     if (url.pathname === '/api/apps' && req.method === 'GET') {
@@ -106,6 +119,7 @@ const server = http.createServer(async (req, res) => {
     const appLaunchMatch = url.pathname.match(/^\/api\/apps\/([^/]+)\/launch$/);
     if (appLaunchMatch && req.method === 'POST') {
       const result = await launchWindowsApp(decodeURIComponent(appLaunchMatch[1]));
+      if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 
@@ -159,7 +173,7 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
     console.error(error);
-    if (!res.headersSent) sendJson(res, 500, { error: 'Internal server error' });
+    if (!res.headersSent) sendJson(res, 500, { error: error.message || 'Internal server error' });
     else res.end();
   }
 });
@@ -170,6 +184,14 @@ server.on('upgrade', (req, socket, head) => {
     audioRouter.handleUpgrade(req, socket, head);
     return;
   }
+  if (url.pathname === '/api/secret/video') {
+    secretTransport.handleUpgrade('video', req, socket, head);
+    return;
+  }
+  if (url.pathname === '/api/secret/input') {
+    secretTransport.handleUpgrade('input', req, socket, head);
+    return;
+  }
   if (!url.pathname.startsWith('/guacamole/')) {
     socket.destroy();
     return;
@@ -177,11 +199,13 @@ server.on('upgrade', (req, socket, head) => {
   proxyWebSocket(req, socket, head, url);
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   console.log(`MRD listening on http://${HOST}:${PORT}`);
   console.log(`Guacamole proxy target: ${GUACAMOLE_ORIGIN.origin}`);
   console.log(`Power controls: ${ALLOW_POWER_CONTROLS ? 'ENABLED' : 'disabled'}`);
   console.log(`Audio router: ${audioRouter.available ? 'available' : 'not installed'}`);
+  const secret = await secretTransport.refreshStatus(true);
+  console.log(`Secret transport: ${secret.ready ? 'ready' : secret.phase}`);
 });
 
 setInterval(async () => {
@@ -210,11 +234,13 @@ async function getDesktopPath() {
   }
 }
 
-function getSessionState() {
+async function getSessionState() {
+  const secret = await secretTransport.refreshStatus();
   return {
     privacyMode: runtimeState.session.privacyMode,
-    transport: runtimeState.session.privacyMode === 'not-secret' ? 'rdp' : 'console',
-    secretSupported: false,
+    transport: runtimeState.session.privacyMode === 'not-secret' ? 'rdp' : 'secret',
+    secretSupported: secret.ready,
+    secret,
     notSecretSupported: true,
     preparedAt: runtimeState.session.preparedAt || null
   };
@@ -229,15 +255,34 @@ async function prepareSession(body) {
   await writeRuntimeState(runtimeState);
 
   if (privacyMode === 'secret') {
+    const secret = await secretTransport.refreshStatus(true);
+    if (!secret.ready) {
+      return {
+        ok: false,
+        code: 409,
+        privacyMode,
+        secretSupported: false,
+        setupRequired: true,
+        secret,
+        error: secret.error || 'Secret transport is not ready. Run scripts/setup-secret-transport.ps1 once as Administrator, then restart MRD.'
+      };
+    }
+
+    await secretTransport.start();
     return {
-      ok: false,
-      code: 409,
+      ok: true,
       privacyMode,
-      secretSupported: false,
-      error: 'Secret mode needs MRD console/virtual-display transport. Standard Windows RDP always locks the local console, so MRD will not fake this mode with RDP.'
+      transport: 'secret',
+      secretSupported: true,
+      secret: {
+        videoPath: '/api/secret/video',
+        inputPath: '/api/secret/input',
+        display: secretTransport.status.display
+      }
     };
   }
 
+  await secretTransport.stop();
   return {
     ok: true,
     privacyMode,
@@ -251,10 +296,24 @@ async function handleAdminAction(action) {
   if (action === 'restart-guacamole') return restartGuacamole(ROOT);
   if (action === 'restart-docker') return restartDockerDesktop();
   if (action === 'restart-tailscale') return restartTailscale();
-  if (action === 'open-services') return launchWindowsApp('services');
-  if (action === 'open-task-manager') return launchWindowsApp('task-manager');
+  if (action === 'open-services') {
+    const result = await launchWindowsApp('services');
+    if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
+    return result;
+  }
+  if (action === 'open-task-manager') {
+    const result = await launchWindowsApp('task-manager');
+    if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
+    return result;
+  }
   if (action === 'restart-mrd') return scheduleMrdRestart();
   return { ok: false, error: 'Unsupported MRD admin action.' };
+}
+
+function scheduleSecretWindowMove() {
+  for (const delay of [500, 1400, 2800]) {
+    setTimeout(() => secretTransport.moveForegroundToDisplay().catch(() => {}), delay).unref();
+  }
 }
 
 function scheduleMrdRestart() {
@@ -317,6 +376,7 @@ function getAudioState() {
       ? audio.browserMode
       : null;
   const routerStatus = audioRouter.status;
+  const secretDesktop = audio.activeMode === 'desktop' && runtimeState.session.privacyMode === 'secret';
 
   return {
     desktopMode: audio.desktopMode,
@@ -324,7 +384,11 @@ function getAudioState() {
     activeMode: audio.activeMode,
     effectiveDestination,
     routingApplied: routerStatus.routingApplied && routerStatus.appliedDestination === effectiveDestination,
-    transportPhase: audio.activeMode === 'desktop' ? 'guacamole-rdp-audio' : (routerStatus.helperAvailable ? 'native-router' : 'helper-required'),
+    transportPhase: secretDesktop
+      ? (routerStatus.helperAvailable ? 'secret-native-router' : 'helper-required')
+      : audio.activeMode === 'desktop'
+        ? 'guacamole-rdp-audio'
+        : (routerStatus.helperAvailable ? 'native-router' : 'helper-required'),
     router: routerStatus
   };
 }
@@ -345,7 +409,9 @@ async function updateAudioState(body) {
 
   await writeRuntimeState(runtimeState);
   const policy = getAudioState();
-  await audioRouter.apply(policy.effectiveDestination, { capture: runtimeState.audio.activeMode === 'browser' });
+  const capture = runtimeState.audio.activeMode === 'browser'
+    || (runtimeState.audio.activeMode === 'desktop' && runtimeState.session.privacyMode === 'secret');
+  await audioRouter.apply(policy.effectiveDestination, { capture });
   const state = getAudioState();
   broadcast('audio', state);
   return { ok: true, ...state };
@@ -452,7 +518,7 @@ async function serveStatic(requestPath, req, res) {
       'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self' blob:;"
+      'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self' blob:;"
     });
     if (req.method !== 'HEAD') res.end(data); else res.end();
   } catch {
@@ -560,6 +626,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  try { await secretTransport.shutdown(); } catch {}
   try { await audioRouter.shutdown(); } catch {}
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();
