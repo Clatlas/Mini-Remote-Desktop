@@ -2,7 +2,7 @@ const CACHE = 'mrd-v0.5.0-complete-features';
 const APP_SHELL = [
   '/', '/index.html',
   '/styles.css?v=0.5.0', '/iphone-safearea.css?v=0.5.0',
-  '/app.js?v=0.5.0', '/chrome-window.js?v=0.5.0', '/secret-client.js?v=0.5.0',
+  '/bootstrap.js?v=0.5.0', '/app.js?v=0.5.0', '/chrome-window.js?v=0.5.0', '/secret-client.js?v=0.5.0',
   '/app-manager.js?v=0.5.0', '/extras.js?v=0.5.0',
   '/manifest.webmanifest', '/icon.svg'
 ];
