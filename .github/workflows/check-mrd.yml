@@ -45,7 +45,7 @@ jobs:
               [ref]$errors
             ) | Out-Null
             if ($errors.Count) {
-              $errors | ForEach-Object { Write-Error "$file: $($_.Message)" }
+              $errors | ForEach-Object { Write-Error "${file}: $($_.Message)" }
               throw "PowerShell parse failed: $file"
             }
             Write-Host "Parsed: $file" -ForegroundColor Green
