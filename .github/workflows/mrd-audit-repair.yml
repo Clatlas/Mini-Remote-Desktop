@@ -1,0 +1,67 @@
+name: Apply MRD audit repairs
+
+on:
+  push:
+    paths:
+      - '.github/workflows/mrd-audit-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply audited fixes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $indexPath = 'public/index.html'
+          $index = Get-Content -Raw $indexPath
+          if (-not $index.Contains('/styles.css?v=0.3.0')) { throw 'Expected styles.css v0.3.0 reference was not found.' }
+          if (-not $index.Contains('/iphone-safearea.css?v=0.3.0')) { throw 'Expected iphone-safearea.css v0.3.0 reference was not found.' }
+          $index = $index.Replace('/styles.css?v=0.3.0', '/styles.css?v=0.4.0')
+          $index = $index.Replace('/iphone-safearea.css?v=0.3.0', '/iphone-safearea.css?v=0.4.0')
+          [IO.File]::WriteAllText($indexPath, $index)
+
+          $appPath = 'public/app.js'
+          $app = Get-Content -Raw $appPath
+          $property = ', browserToDesktopBtn: $(''browserToDesktopBtn'')'
+          if (-not $app.Contains($property)) { throw 'Obsolete browserToDesktopBtn property was not found.' }
+          $app = $app.Replace($property, '')
+          $listener = '  app.browserToDesktopBtn.addEventListener(''click'', () => { closeBrowserPreview(); openDesktopSetup(); });'
+          if (-not $app.Contains($listener)) { throw 'Obsolete browserToDesktopBtn listener was not found.' }
+          $app = $app.Replace($listener + "`r`n", '')
+          $app = $app.Replace($listener + "`n", '')
+          [IO.File]::WriteAllText($appPath, $app)
+
+          $browserPath = 'public/browser-engine.js'
+          $browser = Get-Content -Raw $browserPath
+          $oldMedia = '.browser-media-mode{position:absolute;inset:0;z-index:12;background:#000;display:flex;'
+          $newMedia = '.browser-media-mode{position:absolute;inset:0;z-index:12;background:transparent;display:flex;'
+          if (-not $browser.Contains($oldMedia)) { throw 'Expected Media Mode background rule was not found.' }
+          $browser = $browser.Replace($oldMedia, $newMedia)
+          [IO.File]::WriteAllText($browserPath, $browser)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Validate repaired tree
+        run: |
+          npm ci
+          npm run check
+
+      - name: Commit repaired tree
+        shell: bash
+        run: |
+          git config user.name "MRD Audit Bot"
+          git config user.email "145463179+Clatlas@users.noreply.github.com"
+          git rm .github/workflows/mrd-audit-repair.yml
+          git add public/index.html public/app.js public/browser-engine.js
+          git commit -m "Fix MRD audit findings"
+          git push
