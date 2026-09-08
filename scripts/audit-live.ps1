@@ -49,13 +49,78 @@ function Try-Json {
     }
 }
 
+function Resolve-Executable {
+    param(
+        [string]$CommandName,
+        [string[]]$Candidates = @()
+    )
+
+    $command = Get-Command $CommandName -ErrorAction SilentlyContinue
+    if ($command -and $command.Source -and (Test-Path $command.Source)) {
+        return $command.Source
+    }
+
+    foreach ($candidate in $Candidates) {
+        if ($candidate -and (Test-Path $candidate)) { return $candidate }
+    }
+    return $null
+}
+
+function Find-Git {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:ProgramFiles) {
+        $candidates.Add((Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))
+        $candidates.Add((Join-Path $env:ProgramFiles 'Git\bin\git.exe'))
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Git\cmd\git.exe'))
+        $desktopRoot = Join-Path $env:LOCALAPPDATA 'GitHubDesktop'
+        if (Test-Path $desktopRoot) {
+            Get-ChildItem $desktopRoot -Directory -Filter 'app-*' -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending |
+                ForEach-Object {
+                    $candidates.Add((Join-Path $_.FullName 'resources\app\git\cmd\git.exe'))
+                    $candidates.Add((Join-Path $_.FullName 'resources\app\git\bin\git.exe'))
+                }
+        }
+    }
+    return Resolve-Executable 'git.exe' $candidates.ToArray()
+}
+
+function Find-Node {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'nodejs\node.exe')) }
+    if ($env:LOCALAPPDATA) { $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe')) }
+
+    # If MRD is already running, its listener process is authoritative evidence
+    # for the Node executable even when the current PowerShell PATH is stale.
+    try {
+        $listeners = @(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)
+        foreach ($pid in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
+            if ($process.ExecutablePath -and [IO.Path]::GetFileName($process.ExecutablePath) -ieq 'node.exe') {
+                $candidates.Insert(0, $process.ExecutablePath)
+            }
+        }
+    } catch {}
+
+    return Resolve-Executable 'node.exe' $candidates.ToArray()
+}
+
+function Find-Npm {
+    param([string]$NodePath)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($NodePath) { $candidates.Add((Join-Path (Split-Path -Parent $NodePath) 'npm.cmd')) }
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'nodejs\npm.cmd')) }
+    return Resolve-Executable 'npm.cmd' $candidates.ToArray()
+}
+
 function Find-Chrome {
-    $candidates = @(
-        (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
-        (if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe' }),
-        (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
-    ) | Where-Object { $_ -and (Test-Path $_) }
-    return $candidates | Select-Object -First 1
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe')) }
+    if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe')) }
+    if ($env:LOCALAPPDATA) { $candidates.Add((Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')) }
+    return $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 }
 
 function Find-Ffmpeg {
@@ -79,19 +144,37 @@ try {
 }
 catch { Add-Result 'MRD package' 'FAIL' $_.Exception.Message }
 
-try {
-    $commit = (& git rev-parse --short=12 HEAD 2>$null | Select-Object -First 1).Trim()
-    if ($LASTEXITCODE -eq 0 -and $commit) { Add-Result 'Git checkout' 'PASS' $commit }
-    else { Add-Result 'Git checkout' 'FAIL' 'Could not resolve current commit.' }
+$gitPath = Find-Git
+if ($gitPath) {
+    try {
+        $gitOutput = @(& $gitPath -C $Root rev-parse --short=12 HEAD 2>&1)
+        $gitExit = $LASTEXITCODE
+        $commit = ($gitOutput | Select-Object -First 1 | Out-String).Trim()
+        if ($gitExit -eq 0 -and $commit) {
+            Add-Result 'Git checkout' 'PASS' ("{0}; {1}" -f $commit, $gitPath)
+        } else {
+            Add-Result 'Git checkout' 'FAIL' ("git exit {0}: {1}" -f $gitExit, (($gitOutput | Out-String).Trim()))
+        }
+    }
+    catch { Add-Result 'Git checkout' 'FAIL' $_.Exception.Message }
+} else {
+    Add-Result 'Git checkout' 'FAIL' 'git.exe could not be located in PATH, Program Files, or GitHub Desktop.'
 }
-catch { Add-Result 'Git checkout' 'FAIL' $_.Exception.Message }
 
-try {
-    $nodeVersion = (& node --version 2>$null | Select-Object -First 1).Trim()
-    if ($LASTEXITCODE -eq 0 -and $nodeVersion) { Add-Result 'Node.js' 'PASS' $nodeVersion }
-    else { Add-Result 'Node.js' 'FAIL' 'node.exe is unavailable.' }
+$nodePath = Find-Node
+$npmPath = Find-Npm $nodePath
+if ($nodePath) {
+    try {
+        $nodeOutput = @(& $nodePath --version 2>&1)
+        $nodeExit = $LASTEXITCODE
+        $nodeVersion = ($nodeOutput | Select-Object -First 1 | Out-String).Trim()
+        if ($nodeExit -eq 0 -and $nodeVersion) { Add-Result 'Node.js' 'PASS' ("{0}; {1}" -f $nodeVersion, $nodePath) }
+        else { Add-Result 'Node.js' 'FAIL' ("node exit {0}: {1}" -f $nodeExit, (($nodeOutput | Out-String).Trim())) }
+    }
+    catch { Add-Result 'Node.js' 'FAIL' $_.Exception.Message }
+} else {
+    Add-Result 'Node.js' 'FAIL' 'node.exe could not be located from PATH, standard install paths, or the live MRD listener process.'
 }
-catch { Add-Result 'Node.js' 'FAIL' $_.Exception.Message }
 
 # MRD listener and API
 try {
@@ -182,17 +265,27 @@ catch { Add-Result 'Tailscale Serve' 'FAIL' $_.Exception.Message }
 $audioHelper = Join-Path $Root 'bin\mrd-audio-router.exe'
 if (Test-Path $audioHelper) {
     try {
-        $mute = (& $audioHelper get-mute 2>$null | Select-Object -First 1).Trim()
-        if ($LASTEXITCODE -eq 0 -and $mute -in @('0','1')) { Add-Result 'MRD Audio Router' 'PASS' ("helper healthy; current endpoint mute={0}" -f $mute) }
-        else { Add-Result 'MRD Audio Router' 'FAIL' 'Helper exists but get-mute self-test failed.' }
+        $audioOutput = @(& $audioHelper get-mute 2>&1)
+        $audioExit = $LASTEXITCODE
+        $mute = ($audioOutput | Select-Object -First 1 | Out-String).Trim()
+        if ($audioExit -eq 0 -and $mute -in @('0','1')) {
+            Add-Result 'MRD Audio Router' 'PASS' ("helper healthy; current endpoint mute={0}" -f $mute)
+        } else {
+            $detail = (($audioOutput | Out-String).Trim())
+            if (-not $detail) { $detail = 'no diagnostic output' }
+            Add-Result 'MRD Audio Router' 'FAIL' ("get-mute exit {0}: {1}" -f $audioExit, $detail)
+        }
     }
     catch { Add-Result 'MRD Audio Router' 'FAIL' $_.Exception.Message }
 } else { Add-Result 'MRD Audio Router' 'WARN' 'Native audio helper is not installed.' $false }
 
 # Browser Engine prerequisites and optional deep start/stop
-$chrome = Find-Chrome
-if ($chrome) { Add-Result 'Google Chrome' 'PASS' $chrome }
-else { Add-Result 'Google Chrome' 'FAIL' 'Chrome executable was not found.' }
+try {
+    $chrome = Find-Chrome
+    if ($chrome) { Add-Result 'Google Chrome' 'PASS' $chrome }
+    else { Add-Result 'Google Chrome' 'FAIL' 'Chrome executable was not found.' }
+}
+catch { Add-Result 'Google Chrome' 'FAIL' $_.Exception.Message }
 
 $browserStatus = Try-Json "$BaseUrl/api/browser/status"
 if ($browserStatus -and $browserStatus.chromeAvailable) {
@@ -216,7 +309,7 @@ $secret = Try-Json "$BaseUrl/api/secret/status"
 if ($secret -and $secret.ready) {
     Add-Result 'Secret transport status' 'PASS' ("{0}x{1}; FFmpeg={2}" -f $secret.display.width, $secret.display.height, $secret.ffmpegAvailable)
 } elseif ($secret) {
-    Add-Result 'Secret transport status' 'WARN' ($secret.error | Out-String).Trim() $false
+    Add-Result 'Secret transport status' 'WARN' (($secret.error | Out-String).Trim()) $false
 } else { Add-Result 'Secret transport status' 'WARN' 'GET /api/secret/status failed.' $false }
 
 if ($Deep -and $secret -and $secret.ready) {
@@ -232,12 +325,16 @@ if ($Deep -and $secret -and $secret.ready) {
 }
 
 # Static/server smoke suite from this checkout (uses a separate localhost port).
-try {
-    $checkOutput = (& npm run check 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -eq 0) { Add-Result 'Repository automated checks' 'PASS' 'Syntax + static wiring + isolated server smoke passed.' }
-    else { Add-Result 'Repository automated checks' 'FAIL' (($checkOutput -split "`r?`n" | Select-Object -Last 8) -join ' | ') }
+if ($npmPath) {
+    try {
+        $checkOutput = (& $npmPath run check 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0) { Add-Result 'Repository automated checks' 'PASS' 'Syntax + static wiring + isolated server smoke passed.' }
+        else { Add-Result 'Repository automated checks' 'FAIL' (($checkOutput -split "`r?`n" | Select-Object -Last 8) -join ' | ') }
+    }
+    catch { Add-Result 'Repository automated checks' 'FAIL' $_.Exception.Message }
+} else {
+    Add-Result 'Repository automated checks' 'FAIL' 'npm.cmd could not be located, so the repository check suite could not run.'
 }
-catch { Add-Result 'Repository automated checks' 'FAIL' $_.Exception.Message }
 
 $failedRequired = @($results | Where-Object { $_.status -eq 'FAIL' -and $_.required }).Count
 $warnings = @($results | Where-Object { $_.status -eq 'WARN' }).Count
