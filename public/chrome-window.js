@@ -86,7 +86,7 @@
     if ($('connectHeroEyebrow')) $('connectHeroEyebrow').textContent = browser ? 'REMOTE CHROME' : 'REMOTE WINDOWS';
     if ($('connectHeroTitle')) $('connectHeroTitle').textContent = browser ? 'Choose privacy and Chrome mode' : 'Choose privacy first';
     if ($('connectHeroText')) $('connectHeroText').textContent = browser
-      ? 'MRD connects the desktop transport, then silently opens or focuses one managed Chrome window.'
+      ? 'MRD connects the virtual-display transport, then silently opens or focuses one managed Chrome window.'
       : 'Your privacy mode is fixed for this connection.';
     const label = $('connectDesktopBtn')?.querySelector('span');
     const pc = $('pcName')?.textContent?.trim() || 'Home PC';
@@ -112,9 +112,12 @@
     if ($('browserModeDetailText')) $('browserModeDetailText').textContent = normal
       ? 'Uses your existing Chrome profile, including normal website cookies and signed-in sessions.'
       : 'Uses your existing Chrome profile for bookmarks and saved passwords, while website cookies remain private to this Incognito session.';
-    if ($('browserModeDialogNote')) $('browserModeDialogNote').textContent = normal
-      ? 'Normal mode carries over your existing website logins and browsing state.'
-      : 'Incognito uses your existing Chrome profile foundation without inheriting normal website cookies.';
+    if ($('browserModeDialogNote')) {
+      $('browserModeDialogNote').textContent = normal
+        ? 'Normal mode carries over your existing website logins and browsing state.'
+        : 'Incognito uses your existing Chrome profile foundation without inheriting normal website cookies.';
+      $('browserModeDialogNote').style.color = '';
+    }
   }
 
   function openChooser(callback = showChromeSurface) {
@@ -133,9 +136,9 @@
         return;
       }
       if ($('sessionView')?.hidden) return;
-      const secret = document.body.classList.contains('mrd-secret-active');
+      const vdd = document.body.classList.contains('mrd-vdd-active') || document.body.classList.contains('mrd-secret-active');
       const secretFrame = $('secretFrame');
-      const ready = secret
+      const ready = vdd
         ? Boolean(secretFrame && !secretFrame.hidden && secretFrame.getAttribute('src'))
         : $('sessionConnectionText')?.classList.contains('ready');
       if (!ready) return;
@@ -148,7 +151,12 @@
   async function launch(mode = state.mode, callback = showChromeSurface) {
     selectMode(mode);
     const button = $('browserModeOpenBtn');
+    const note = $('browserModeDialogNote');
     if (button) button.disabled = true;
+    if (note) {
+      note.textContent = state.mode === 'incognito' ? 'Opening Incognito Chrome on the MRD virtual display…' : 'Opening Chrome on the MRD virtual display…';
+      note.style.color = '';
+    }
     toast(state.mode === 'incognito' ? 'Opening Incognito Chrome…' : 'Opening Chrome…');
     try {
       const result = await fetchJson('/api/chrome/open', {
@@ -162,7 +170,12 @@
       toast(result.action === 'focused' ? 'Chrome focused' : `${state.mode === 'incognito' ? 'Incognito ' : ''}Chrome opened`);
       return result;
     } catch (error) {
-      toast(error.message);
+      const message = error?.message || 'Chrome launch failed.';
+      if (note) {
+        note.textContent = `Chrome launch failed: ${message}`;
+        note.style.color = '#ff9b9b';
+      }
+      toast(message);
       return null;
     } finally {
       if (button) button.disabled = false;
@@ -176,11 +189,11 @@
     $('appsMenu').hidden = true;
     $('adminMenu').hidden = true;
     $('surfaceTitle').textContent = state.mode === 'incognito' ? 'Chrome · Incognito' : 'Google Chrome';
-    const secret = document.body.classList.contains('mrd-secret-active');
-    $('surfaceSubtitle').textContent = secret ? 'Secret virtual display' : 'MRD Desktop';
+    const vdd = document.body.classList.contains('mrd-vdd-active') || document.body.classList.contains('mrd-secret-active');
+    $('surfaceSubtitle').textContent = vdd ? 'MRD virtual display' : 'MRD Desktop';
     $('surfaceToolbar').hidden = false;
     $('surfaceDock').hidden = false;
-    if (secret && $('secretFrame')) $('secretFrame').hidden = false;
+    if (vdd && $('secretFrame')) $('secretFrame').hidden = false;
     setSurfaceActive(true);
   }
 
