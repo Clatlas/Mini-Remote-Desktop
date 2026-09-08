@@ -56,20 +56,16 @@
       void connectSecret();
     }, true);
 
-    $('commandBrowser')?.addEventListener('click', event => {
-      if (!state.active) return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      void launchSecretApp('chrome', 'Browser');
-    }, true);
-
     $('appsList')?.addEventListener('click', event => {
       if (!state.active) return;
       const card = event.target.closest('.app-card');
       if (!card) return;
+      const id = card.dataset.appId || '';
       const name = card.querySelector('strong')?.textContent?.trim();
-      if (!name || name === 'MRD Admin') return;
+      if (!name || id === 'mrd-admin' || name === 'MRD Admin') return;
       event.preventDefault(); event.stopImmediatePropagation();
-      void launchSecretAppByName(name);
+      if (id) void launchSecretApp(id, name);
+      else void launchSecretAppByName(name);
     }, true);
 
     for (const id of ['appsBackBtn','adminBackBtn','surfaceMenuBtn','dockCommandsBtn']) {

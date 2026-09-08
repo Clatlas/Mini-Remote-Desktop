@@ -461,7 +461,13 @@ async function getStatus() {
 
   runtimeState.lastSeenAt = now;
   runtimeState.lastKnownState = state;
-  if (state.startsWith('online')) runtimeState.lastPowerIntent = null;
+  const recentSleepIntent = runtimeState.lastPowerIntent === 'asleep'
+    && Number.isFinite(Number(runtimeState.lastPowerIntentAt))
+    && now - Number(runtimeState.lastPowerIntentAt) < 15000;
+  if (state.startsWith('online') && !recentSleepIntent) {
+    runtimeState.lastPowerIntent = null;
+    runtimeState.lastPowerIntentAt = null;
+  }
   await writeRuntimeState(runtimeState);
 
   return {

@@ -445,6 +445,7 @@ function renderApps() {
     for (const item of items) {
       const button = document.createElement('button');
       button.className = 'app-card';
+      button.dataset.appId = item.id;
       button.disabled = item.available === false;
       button.innerHTML = `<span class="app-card-icon">${escapeHtml(item.icon || '□')}</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || '')}</small>`;
       button.addEventListener('click', () => {
