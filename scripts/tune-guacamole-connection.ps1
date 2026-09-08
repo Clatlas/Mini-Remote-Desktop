@@ -27,12 +27,19 @@ if (-not $connectionId) {
     exit 0
 }
 
+# connection_id comes directly from PostgreSQL, but validate it before embedding
+# it into the tuning SQL so this script never interpolates arbitrary text.
+if ($connectionId -notmatch '^\d+$') {
+    throw "Unexpected Guacamole connection ID: $connectionId"
+}
+
+# PostgreSQL CTEs are scoped to a single statement. Keep the tuning atomic and
+# use the already-resolved numeric connection ID for both statements rather than
+# trying to reuse a CTE from the INSERT in the following DELETE.
 $sql = @"
-WITH target AS (
-    SELECT connection_id
-    FROM guacamole_connection
-    WHERE connection_name = '$ConnectionName'
-), desired(parameter_name, parameter_value) AS (
+BEGIN;
+
+WITH desired(parameter_name, parameter_value) AS (
     VALUES
         ('enable-touch', 'true'),
         ('resize-method', 'display-update'),
@@ -46,16 +53,18 @@ WITH target AS (
         ('enable-menu-animations', 'false')
 )
 INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
-SELECT target.connection_id, desired.parameter_name, desired.parameter_value
-FROM target CROSS JOIN desired
+SELECT $connectionId, desired.parameter_name, desired.parameter_value
+FROM desired
 ON CONFLICT (connection_id, parameter_name)
 DO UPDATE SET parameter_value = EXCLUDED.parameter_value;
 
 -- Let Guacamole negotiate a single virtual RDP display from the current phone
 -- viewport instead of preserving an old fixed desktop/monitor size.
 DELETE FROM guacamole_connection_parameter
-WHERE connection_id IN (SELECT connection_id FROM target)
+WHERE connection_id = $connectionId
   AND parameter_name IN ('width', 'height');
+
+COMMIT;
 "@
 
 $sql | & docker compose --env-file $DockerEnv -f $ComposeFile exec -T postgres `
