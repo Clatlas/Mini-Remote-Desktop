@@ -99,7 +99,7 @@ export class SecretTransport {
   readinessMessage() {
     if (process.platform !== 'win32') return 'Secret transport is available only on the Windows host.';
     if (!this.ffmpegPath) return 'FFmpeg is not installed for Secret transport. Run scripts/setup-secret-transport.ps1 as Administrator.';
-    if (!this.display) return `MRD virtual display ${SOURCE_WIDTH}x${SOURCE_HEIGHT} was not detected. Run scripts/setup-secret-transport.ps1 as Administrator.`;
+    if (!this.display) return `MRD virtual display ${SOURCE_WIDTH}x${SOURCE_HEIGHT} could not be resolved from the active Windows display topology.`;
     return 'Secret transport is not ready.';
   }
 
@@ -335,28 +335,63 @@ async function findFfmpeg() {
 }
 
 async function findSecretDisplay(width, height) {
-  const script = `
+  let lastInventory = [];
+  let lastFailure = null;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const script = `
+$ProgressPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
-$screen = [System.Windows.Forms.Screen]::AllScreens |
-  Where-Object { $_.Bounds.Width -eq ${width} -and $_.Bounds.Height -eq ${height} } |
-  Select-Object -First 1
-if ($screen) {
+$screens = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
   [pscustomobject]@{
-    x = $screen.Bounds.X
-    y = $screen.Bounds.Y
-    width = $screen.Bounds.Width
-    height = $screen.Bounds.Height
-    deviceName = $screen.DeviceName
-    primary = $screen.Primary
-  } | ConvertTo-Json -Compress
-}
+    x = $_.Bounds.X
+    y = $_.Bounds.Y
+    width = $_.Bounds.Width
+    height = $_.Bounds.Height
+    deviceName = $_.DeviceName
+    primary = $_.Primary
+  }
+})
+$match = $screens | Where-Object { $_.width -eq ${width} -and $_.height -eq ${height} -and -not $_.primary } | Select-Object -First 1
+[pscustomobject]@{ match = $match; screens = $screens } | ConvertTo-Json -Compress -Depth 5
 `;
-  const { stdout } = await execFileAsync('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-Command', script
-  ], { windowsHide: true, timeout: 5000 });
-  const text = stdout.trim();
-  if (!text) return null;
-  const value = JSON.parse(text);
-  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) return null;
-  return value;
+
+    try {
+      const { stdout } = await execFileAsync('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
+      ], { windowsHide: true, timeout: 5000, maxBuffer: 256 * 1024 });
+
+      const lines = String(stdout || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      const jsonLine = [...lines].reverse().find(line => line.startsWith('{'));
+      if (!jsonLine) throw new Error('Windows display inventory returned no JSON payload.');
+
+      const payload = JSON.parse(jsonLine);
+      lastInventory = Array.isArray(payload?.screens) ? payload.screens : payload?.screens ? [payload.screens] : [];
+      const value = payload?.match || null;
+      if (value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y))) {
+        return {
+          x: Number(value.x),
+          y: Number(value.y),
+          width: Number(value.width),
+          height: Number(value.height),
+          deviceName: value.deviceName || null,
+          primary: Boolean(value.primary)
+        };
+      }
+    } catch (error) {
+      lastFailure = error;
+    }
+
+    if (attempt < 3) await delay(250);
+  }
+
+  const inventory = lastInventory.length
+    ? lastInventory.map(screen => `${screen.deviceName || '?'} ${screen.width}x${screen.height} @ ${screen.x},${screen.y}${screen.primary ? ' primary' : ''}`).join('; ')
+    : 'no screens returned';
+  const suffix = lastFailure ? ` Detector error: ${lastFailure.message}` : '';
+  throw new Error(`MRD could not resolve the ${width}x${height} virtual display. Active displays: ${inventory}.${suffix}`);
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
