@@ -129,7 +129,7 @@
       <div class="powershell-card">
         <header><div><div class="eyebrow">HOME PC</div><h2>PowerShell Console</h2></div><button id="powershellClose" aria-label="Close">×</button></header>
         <p class="powershell-copy">Paste a command or multi-line script. It runs as the Windows account hosting MRD. Nothing is saved to command history.</p>
-        <textarea id="powershellInput" class="powershell-input" maxlength="16000" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste PowerShell here…"></textarea>
+        <textarea id="powershellInput" class="powershell-input" maxlength="15900" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste PowerShell here…"></textarea>
         <div class="powershell-actions"><button id="powershellClear">Clear</button><button id="powershellCopy">Copy output</button><button id="powershellRun" class="powershell-run">Run</button></div>
         <div class="powershell-output-wrap"><div class="powershell-status"><span id="powershellState">Ready</span><span id="powershellExit"></span></div><pre id="powershellOutput" class="powershell-output">Output will appear here.</pre></div>
       </div>`;
@@ -191,7 +191,7 @@
         method: 'POST',
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ action: `powershell:${command}` })
+        body: JSON.stringify({ action: `powershell:$ProgressPreference='SilentlyContinue';${command}` })
       });
       const body = await response.json();
       if (!response.ok || body.executed === false) throw new Error(body.error || 'PowerShell command failed to start.');
