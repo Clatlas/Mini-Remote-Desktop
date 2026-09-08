@@ -1,31 +1,27 @@
-const CACHE = 'mrd-v0.5.1-powershell-console';
-const APP_SHELL = [
-  '/', '/index.html',
-  '/styles.css?v=0.5.0', '/iphone-safearea.css?v=0.5.0',
-  '/bootstrap.js?v=0.5.0', '/app.js?v=0.5.0', '/chrome-window.js?v=0.5.0', '/secret-client.js?v=0.5.0',
-  '/app-manager.js?v=0.5.0', '/extras.js?v=0.5.1',
-  '/manifest.webmanifest', '/icon.svg'
-];
+const CACHE = 'mrd-v0.5.2-recovery';
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(key => caches.delete(key)));
+    await self.clients.claim();
+
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      try { await client.navigate(client.url); } catch {}
+    }
+  })());
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/guacamole/') || url.pathname === '/update-result.json') return;
+  if (event.request.method !== 'GET') return;
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/guacamole/') || url.pathname === '/update-result.json') return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request).then(cached => cached || caches.match('/index.html')))
-  );
+  event.respondWith(fetch(new Request(event.request, { cache: 'no-store' })));
 });
