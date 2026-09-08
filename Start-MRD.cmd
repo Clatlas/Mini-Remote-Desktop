@@ -3,6 +3,16 @@ setlocal
 cd /d "%~dp0"
 title Mini Remote Desktop
 
+rem When Start-MRD is launched from MRD's own PowerShell console, stopping the
+rem current Node host would also sever the process tree driving this command.
+rem Hand that case off to an independent delayed launcher first.
+if not "%MRD_RESTART_DETACHED%"=="1" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\dispatch-mrd-restart.ps1"
+    if errorlevel 10 exit /b 0
+    if errorlevel 1 goto :fail
+)
+set "MRD_RESTART_DETACHED="
+
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\check-single-instance.ps1"
 if errorlevel 1 goto :fail
 
