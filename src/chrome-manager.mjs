@@ -66,11 +66,20 @@ export class ChromeManager {
     await this.refreshStatus();
     if (!this.chromePath) return { ok: false, error: this.lastError || 'Google Chrome is not installed.' };
 
+    const target = normalizeDisplay(display);
+
     if (this.managed?.hwnd) {
       if (this.managed.mode === mode) {
-        const focused = await placeAndShow(this.managed.hwnd, display);
+        const focused = await placeAndShow(this.managed.hwnd, target);
         if (focused) {
           return { ok: true, action: 'focused', mode, status: this.status };
+        }
+        if (target) {
+          try { await closeWindow(this.managed.hwnd); } catch {}
+          this.lastError = 'MRD could not confine the managed Chrome window to the Secret virtual display.';
+          this.managed = null;
+          await this.saveState();
+          return { ok: false, error: this.lastError };
         }
         this.managed = null;
         await this.saveState();
@@ -82,16 +91,19 @@ export class ChromeManager {
     const before = new Set(await listChromeWindows());
     const args = [
       '--new-window',
-      '--start-minimized',
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-session-crashed-bubble'
     ];
 
+    // Starting minimized makes cross-monitor placement unreliable because the
+    // restore can race SetWindowPos and Chrome can fall back to its saved
+    // physical-monitor rectangle. Secret mode launches directly onto target.
+    if (!target) args.push('--start-minimized');
+
     if (this.profileDirectory) args.push(`--profile-directory=${this.profileDirectory}`);
     if (mode === 'incognito') args.push('--incognito');
 
-    const target = normalizeDisplay(display);
     if (target) {
       args.push(`--window-position=${target.x + 8},${target.y + 8}`);
       args.push(`--window-size=${Math.max(640, target.width - 16)},${Math.max(480, target.height - 16)}`);
@@ -126,7 +138,16 @@ export class ChromeManager {
     await this.saveState();
 
     const shown = await placeAndShow(hwnd, target);
-    if (!shown) this.lastError = 'Chrome opened, but Windows did not confirm focus/placement.';
+    if (!shown) {
+      if (target) {
+        try { await closeWindow(hwnd); } catch {}
+        this.managed = null;
+        await this.saveState();
+        this.lastError = 'Chrome opened, but MRD could not verify that its window was inside the Secret virtual display. The window was closed instead of leaving it on a physical monitor.';
+        return { ok: false, error: this.lastError };
+      }
+      this.lastError = 'Chrome opened, but Windows did not confirm focus/placement.';
+    }
 
     return {
       ok: true,
@@ -139,8 +160,9 @@ export class ChromeManager {
   async focus({ display = null } = {}) {
     await this.refreshStatus();
     if (!this.managed?.hwnd) return { ok: false, error: 'MRD does not currently own a Chrome window.' };
-    const ok = await placeAndShow(this.managed.hwnd, display);
-    if (!ok) return { ok: false, error: 'The managed Chrome window is no longer available.' };
+    const target = normalizeDisplay(display);
+    const ok = await placeAndShow(this.managed.hwnd, target);
+    if (!ok) return { ok: false, error: target ? 'The managed Chrome window could not be verified on the Secret virtual display.' : 'The managed Chrome window is no longer available.' };
     return { ok: true, action: 'focused', mode: this.managed.mode, status: this.status };
   }
 
@@ -301,7 +323,7 @@ async function runWindowScript(command) {
   const script = `${WINDOW_HELPER}\n${command}`;
   const { stdout } = await execFileAsync('powershell.exe', [
     '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
-  ], { windowsHide: true, timeout: 8000, maxBuffer: 512 * 1024 });
+  ], { windowsHide: true, timeout: 12000, maxBuffer: 512 * 1024 });
   return String(stdout || '');
 }
 
@@ -311,7 +333,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
+using System.Threading;
 
 public static class MrdChromeWindow {
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -320,13 +342,23 @@ public static class MrdChromeWindow {
     private const uint SWP_NOZORDER = 0x0004;
     private const uint WM_CLOSE = 0x0010;
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-    [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     private static bool BelongsToChrome(IntPtr hWnd) {
@@ -339,6 +371,15 @@ public static class MrdChromeWindow {
             return String.Equals(process.ProcessName, "chrome", StringComparison.OrdinalIgnoreCase);
         }
         catch { return false; }
+    }
+
+    private static bool CenterInsideTarget(IntPtr hWnd, int x, int y, int width, int height) {
+        RECT rect;
+        if (!GetWindowRect(hWnd, out rect)) return false;
+        long centerX = ((long)rect.Left + rect.Right) / 2;
+        long centerY = ((long)rect.Top + rect.Bottom) / 2;
+        return centerX >= x && centerX < (long)x + width
+            && centerY >= y && centerY < (long)y + height;
     }
 
     public static long[] ListChrome() {
@@ -356,8 +397,8 @@ public static class MrdChromeWindow {
 
     public static bool FocusAndMaximize(IntPtr hWnd) {
         if (!BelongsToChrome(hWnd)) return false;
-        ShowWindowAsync(hWnd, SW_RESTORE);
-        ShowWindowAsync(hWnd, SW_MAXIMIZE);
+        ShowWindow(hWnd, SW_RESTORE);
+        ShowWindow(hWnd, SW_MAXIMIZE);
         SetForegroundWindow(hWnd);
         return true;
     }
@@ -365,18 +406,30 @@ public static class MrdChromeWindow {
     public static bool PlaceAndShow(IntPtr hWnd, int x, int y, int width, int height) {
         if (!BelongsToChrome(hWnd)) return false;
 
-        // Do not maximize a Secret-mode Chrome window. Windows/Chrome can reapply
-        // the window's saved monitor affinity during maximize and move it back to
-        // a physical display. Restore first, then explicitly size it to the target
-        // virtual display so its monitor cannot be changed by maximize behavior.
-        ShowWindowAsync(hWnd, SW_RESTORE);
         int inset = 8;
+        int left = x + inset;
+        int top = y + inset;
         int w = Math.Max(320, width - inset * 2);
         int h = Math.Max(240, height - inset * 2);
-        bool moved = SetWindowPos(hWnd, IntPtr.Zero, x + inset, y + inset, w, h, SWP_NOZORDER);
-        ShowWindowAsync(hWnd, SW_RESTORE);
-        SetForegroundWindow(hWnd);
-        return moved;
+        bool moved = false;
+
+        // Chrome can restore its saved physical-monitor rectangle shortly after
+        // creation. Keep enforcing the Secret target during that startup window,
+        // and verify the actual HWND center is inside the virtual display.
+        for (int attempt = 0; attempt < 12; attempt++) {
+            ShowWindow(hWnd, SW_RESTORE);
+            if (IsIconic(hWnd)) {
+                Thread.Sleep(80);
+                ShowWindow(hWnd, SW_RESTORE);
+            }
+
+            moved = SetWindowPos(hWnd, IntPtr.Zero, left, top, w, h, SWP_NOZORDER) || moved;
+            Thread.Sleep(180);
+        }
+
+        bool verified = moved && CenterInsideTarget(hWnd, x, y, width, height);
+        if (verified) SetForegroundWindow(hWnd);
+        return verified;
     }
 
     public static bool Close(IntPtr hWnd) {
