@@ -3,199 +3,231 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#07090d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MRD" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icon.svg" />
-  <link rel="stylesheet" href="/styles.css?v=0.2.0" />
-  <title>MRD</title>
+  <link rel="stylesheet" href="/styles.css?v=0.3.0" />
+  <title>Mini Remote Desktop</title>
 </head>
 <body>
   <main class="app-shell" id="app">
-    <header class="topbar">
-      <div>
-        <div class="eyebrow">PRIVATE PC CLOUD</div>
-        <h1 id="pcName">Home PC</h1>
+    <header class="dashboard-header">
+      <div class="brand-block">
+        <div class="eyebrow">MINI REMOTE DESKTOP</div>
+        <h1>Remote PC</h1>
+        <p id="pcName">Home PC</p>
       </div>
-      <button class="icon-button" id="refreshBtn" aria-label="Refresh status">↻</button>
+      <button class="round-button" id="refreshBtn" aria-label="Refresh PC status">↻</button>
     </header>
 
-    <section class="status-card" aria-live="polite">
-      <div class="status-row">
+    <section class="hero-status" aria-live="polite">
+      <div class="hero-status-top">
+        <div class="device-glyph" aria-hidden="true">▣</div>
         <div class="status-pill" id="statusPill" data-state="offline">
           <span class="status-dot" aria-hidden="true"></span>
           <span id="statusText">Offline</span>
         </div>
-        <div class="latency" id="lastSeen">Waiting for host</div>
+      </div>
+      <div class="hero-copy">
+        <h2 id="statusDeviceName">Home PC</h2>
+        <p id="statusSummary">Waiting for host</p>
       </div>
       <div class="metrics-grid">
-        <div class="metric"><span class="metric-label">CPU</span><strong id="cpuMetric">—</strong></div>
-        <div class="metric"><span class="metric-label">RAM</span><strong id="ramMetric">—</strong></div>
-        <div class="metric"><span class="metric-label">UPTIME</span><strong id="uptimeMetric">—</strong></div>
+        <div class="metric"><span>CPU</span><strong id="cpuMetric">—</strong></div>
+        <div class="metric"><span>RAM</span><strong id="ramMetric">—</strong></div>
+        <div class="metric"><span>UPTIME</span><strong id="uptimeMetric">—</strong></div>
+      </div>
+      <div class="hero-foot"><span class="live-pulse" aria-hidden="true"></span><span id="lastSeen">Waiting for host</span></div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><h2>Connect</h2><span>Private tailnet</span></div>
+      <div class="primary-launch-grid">
+        <button class="primary-launch-card featured" id="desktopBtn">
+          <span class="launch-icon">▣</span>
+          <span class="launch-copy"><strong>Desktop</strong><small>Commands, apps & full Windows</small></span>
+          <span class="chevron">›</span>
+        </button>
+        <button class="primary-launch-card" id="browserBtn">
+          <span class="launch-icon">◎</span>
+          <span class="launch-copy"><strong>Browser Engine</strong><small>Mobile browser transport preview</small></span>
+          <span class="chevron">›</span>
+        </button>
       </div>
     </section>
 
-    <section class="launch-grid" aria-label="Remote modes">
-      <button class="launch-card primary" id="desktopBtn">
-        <span class="launch-icon">▣</span>
-        <span><strong>Desktop</strong><small>Remote commands, apps, and full Windows</small></span>
-        <span class="chevron">›</span>
-      </button>
-      <button class="launch-card" id="browserBtn">
-        <span class="launch-icon">◎</span>
-        <span><strong>Browser Engine</strong><small>PC-powered mobile browser · preview</small></span>
-        <span class="chevron">›</span>
-      </button>
-    </section>
-
-    <section class="controls-section">
-      <div class="section-heading"><h2>PC controls</h2><span id="controlsLock" class="section-note">Protected</span></div>
-      <div class="control-grid">
-        <button class="control-button" data-power="lock"><span>⌾</span><small>Lock</small></button>
-        <button class="control-button" data-power="sleep"><span>◐</span><small>Sleep</small></button>
-        <button class="control-button" data-power="restart"><span>↻</span><small>Restart</small></button>
-        <button class="control-button danger" data-power="shutdown"><span>⏻</span><small>Shut down</small></button>
+    <section class="section-block quick-section">
+      <div class="section-title-row"><h2>Quick controls</h2><span id="controlsLock">Protected</span></div>
+      <div class="quick-grid">
+        <button class="quick-card" data-power="lock"><span class="quick-icon">⌾</span><span><strong>Lock</strong><small>Secure console</small></span></button>
+        <button class="quick-card" data-power="sleep"><span class="quick-icon">◐</span><span><strong>Sleep</strong><small>Pause host</small></span></button>
+        <button class="quick-card" data-power="restart"><span class="quick-icon">↻</span><span><strong>Restart</strong><small>Reboot Windows</small></span></button>
+        <button class="quick-card danger" data-power="shutdown"><span class="quick-icon">⏻</span><span><strong>Shut down</strong><small>Power off</small></span></button>
       </div>
     </section>
 
-    <section class="security-note">
-      <span class="shield">◆</span>
-      <div><strong>Tailscale-only</strong><p>MRD listens on localhost and is published privately through Tailscale Serve.</p></div>
-    </section>
+    <footer class="private-footnote"><span>◆</span><span><strong>Tailscale-only</strong><small>MRD stays private to your tailnet.</small></span></footer>
   </main>
 
-  <!-- Privacy is deliberately chosen before a Desktop connection is created. -->
-  <section class="view-layer setup-layer" id="connectView" hidden>
-    <header class="simple-toolbar">
-      <button class="back-button" id="connectBackBtn" aria-label="Back">‹</button>
-      <div><strong>Desktop</strong><small>Choose privacy before connecting</small></div>
+  <section class="view-layer" id="connectView" hidden>
+    <header class="screen-topbar">
+      <button class="round-button back" id="connectBackBtn" aria-label="Back to dashboard">‹</button>
+      <div class="screen-heading"><strong>Desktop</strong><small>Connection setup</small></div>
+      <span class="toolbar-spacer" aria-hidden="true"></span>
     </header>
-    <div class="setup-scroll">
-      <div class="setup-card">
-        <div class="eyebrow">PRIVACY</div>
-        <h2>How should this connection behave?</h2>
-        <div class="privacy-toggle" role="radiogroup" aria-label="Desktop privacy mode">
-          <button type="button" class="privacy-option" data-privacy-mode="secret" role="radio" aria-checked="false">
-            <span class="privacy-icon">◌</span>
-            <span><strong>Secret</strong><small>Do not force the physical PC to the lock screen</small></span>
-            <span class="privacy-check">✓</span>
-          </button>
-          <button type="button" class="privacy-option selected" data-privacy-mode="not-secret" role="radio" aria-checked="true">
-            <span class="privacy-icon">◆</span>
-            <span><strong>Not Secret</strong><small>Standard RDP · physical console locks while connected</small></span>
-            <span class="privacy-check">✓</span>
-          </button>
+    <div class="screen-scroll connect-scroll">
+      <section class="connect-hero">
+        <div class="connect-glyph">▣</div>
+        <div><div class="eyebrow">REMOTE WINDOWS</div><h2>Choose privacy first</h2><p>Your privacy mode is fixed for this connection.</p></div>
+      </section>
+
+      <section class="connect-card">
+        <div class="field-label">Privacy</div>
+        <div class="segmented-control" role="radiogroup" aria-label="Desktop privacy mode">
+          <button type="button" data-privacy-mode="secret" role="radio" aria-checked="false"><span>Secret</span></button>
+          <button type="button" data-privacy-mode="not-secret" role="radio" aria-checked="true" class="selected"><span>Not Secret</span></button>
         </div>
-        <p class="setup-note" id="privacyNote">Not Secret uses the proven Windows RDP path.</p>
-        <button class="primary-action" id="connectDesktopBtn">Connect</button>
-      </div>
+        <div class="privacy-detail" id="privacyDetail" data-mode="not-secret">
+          <div class="privacy-detail-icon" id="privacyDetailIcon">◆</div>
+          <div><strong id="privacyDetailTitle">Not Secret</strong><p id="privacyNote">Physical console locks while connected. Uses the proven RDP transport.</p></div>
+        </div>
+      </section>
+
+      <button class="primary-cta" id="connectDesktopBtn"><span>Connect to Home PC</span><span>›</span></button>
+      <p class="connect-footnote" id="connectFootnote">Encrypted privately through Tailscale Serve.</p>
     </div>
   </section>
 
-  <!-- One RDP iframe remains alive beneath MRD's mobile-native menu and app surfaces. -->
   <section class="view-layer session-layer" id="sessionView" hidden>
     <header class="surface-toolbar" id="surfaceToolbar" hidden>
-      <button class="back-button" id="surfaceMenuBtn" aria-label="Back to commands">‹</button>
-      <div class="surface-title"><strong id="surfaceTitle">Full Desktop</strong><small id="surfaceSubtitle">MRD Desktop</small></div>
-      <button class="audio-route-button compact" id="surfaceAudioBtn" aria-label="Desktop audio destination"><span>◖</span><strong id="surfaceAudioLabel">Mobile</strong></button>
-      <button class="keyboard-button" id="keyboardBtn" aria-label="Open keyboard" aria-pressed="false">⌨</button>
+      <button class="round-button back" id="surfaceMenuBtn" aria-label="Back to commands">‹</button>
+      <div class="surface-title">
+        <div class="surface-title-line"><span class="session-dot" id="surfaceStatusDot"></span><strong id="surfaceTitle">Full Desktop</strong></div>
+        <small id="surfaceSubtitle">MRD Desktop</small>
+      </div>
+      <button class="toolbar-pill" id="surfaceAudioBtn" aria-label="Audio destination"><span class="toolbar-pill-icon">◖</span><strong id="surfaceAudioLabel">Mobile</strong></button>
+      <button class="round-button keyboard-button" id="keyboardBtn" aria-label="Open keyboard" aria-pressed="false">⌨</button>
     </header>
 
     <div class="session-stage">
       <iframe id="desktopFrame" title="Remote Windows desktop" allow="clipboard-read; clipboard-write; autoplay"></iframe>
 
-      <section class="session-overlay command-menu" id="sessionMenu">
-        <div class="menu-scroll">
-          <div class="menu-header-block">
-            <div class="eyebrow">DESKTOP SESSION</div>
-            <h2>What do you want to do?</h2>
+      <section class="session-overlay command-hub" id="sessionMenu">
+        <div class="hub-scroll">
+          <header class="hub-header">
+            <div class="hub-header-top"><div><div class="eyebrow">DESKTOP SESSION</div><h2>Connected</h2></div><button class="round-button subtle" id="hubCloseBtn" aria-label="Disconnect session">×</button></div>
             <p id="sessionConnectionText">Connecting to MRD Desktop…</p>
-          </div>
+          </header>
 
-          <button class="menu-audio-control" id="menuAudioBtn"><span>◖</span><span><small>AUDIO</small><strong id="menuAudioLabel">Mobile</strong></span><span class="chevron">›</span></button>
+          <button class="audio-banner" id="menuAudioBtn">
+            <span class="audio-banner-icon">◖</span>
+            <span><small>AUDIO</small><strong id="menuAudioLabel">Mobile</strong></span>
+            <span class="chevron">›</span>
+          </button>
 
-          <div class="session-meta">
-            <span>Privacy</span>
-            <strong id="sessionPrivacyLabel">Not Secret</strong>
-          </div>
+          <section class="session-summary-card">
+            <div><span>Privacy</span><strong id="sessionPrivacyLabel">Not Secret</strong></div>
+            <div><span>Windows</span><strong id="sessionWindowsState">Connected</strong></div>
+            <div><span>Input</span><strong id="sessionInputLabel">Touch</strong></div>
+          </section>
 
+          <div class="hub-section-title"><h3>Open</h3><span>Choose a destination</span></div>
           <div class="command-grid">
-            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Browser</strong><small>Open a dedicated Google Chrome window</small></span><span class="chevron">›</span></button>
-            <button class="command-card" id="commandApps"><span class="command-icon">▦</span><span><strong>Apps</strong><small>Open a pinned Windows application</small></span><span class="chevron">›</span></button>
-            <button class="command-card" id="commandDesktop"><span class="command-icon">▣</span><span><strong>Full Desktop</strong><small>Use the complete Windows desktop</small></span><span class="chevron">›</span></button>
-            <button class="command-card" id="commandAdmin"><span class="command-icon">⚙</span><span><strong>MRD Admin</strong><small>Docker, Guacamole, Tailscale, and service tools</small></span><span class="chevron">›</span></button>
-            <button class="command-card" id="commandUpdate"><span class="command-icon">⇣</span><span><strong>Update MRD</strong><small>Pull latest GitHub code and restart MRD</small></span><span class="chevron">›</span></button>
+            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Browser</strong><small>Dedicated Chrome window</small></span></button>
+            <button class="command-card" id="commandApps"><span class="command-icon">▦</span><span><strong>Apps</strong><small>Pinned Windows apps</small></span></button>
+            <button class="command-card" id="commandDesktop"><span class="command-icon">▣</span><span><strong>Full Desktop</strong><small>Complete Windows view</small></span></button>
+            <button class="command-card" id="commandAdmin"><span class="command-icon">⚙</span><span><strong>MRD Admin</strong><small>Host & service tools</small></span></button>
+            <button class="command-card" id="commandUpdate"><span class="command-icon">⇣</span><span><strong>Update MRD</strong><small>Pull & restart remotely</small></span></button>
+            <button class="command-card danger-card" id="disconnectBtn"><span class="command-icon">⏻</span><span><strong>Disconnect</strong><small>End remote session</small></span></button>
           </div>
-
-          <button class="disconnect-button" id="disconnectBtn">Disconnect</button>
         </div>
       </section>
 
       <section class="session-overlay panel-menu" id="appsMenu" hidden>
-        <div class="panel-toolbar"><button class="back-button" id="appsBackBtn">‹</button><div><strong>Apps</strong><small>Pinned Windows applications</small></div></div>
-        <div class="menu-scroll panel-scroll">
-          <button class="menu-audio-control" id="appsAudioBtn"><span>◖</span><span><small>AUDIO</small><strong id="appsAudioLabel">Mobile</strong></span><span class="chevron">›</span></button>
+        <header class="panel-topbar"><button class="round-button back" id="appsBackBtn">‹</button><div><strong>Apps</strong><small>Pinned launchers</small></div><span class="toolbar-spacer"></span></header>
+        <div class="panel-scroll">
+          <button class="audio-banner" id="appsAudioBtn"><span class="audio-banner-icon">◖</span><span><small>AUDIO</small><strong id="appsAudioLabel">Mobile</strong></span><span class="chevron">›</span></button>
+          <div class="panel-section-title"><h3>Installed apps</h3><span>Launch into this session</span></div>
           <div id="appsList" class="apps-list"><div class="panel-loading">Loading apps…</div></div>
         </div>
       </section>
 
       <section class="session-overlay panel-menu" id="adminMenu" hidden>
-        <div class="panel-toolbar"><button class="back-button" id="adminBackBtn">‹</button><div><strong>MRD Admin</strong><small>Allowlisted host controls</small></div></div>
-        <div class="menu-scroll panel-scroll">
-          <button class="menu-audio-control" id="adminAudioBtn"><span>◖</span><span><small>AUDIO</small><strong id="adminAudioLabel">Mobile</strong></span><span class="chevron">›</span></button>
-          <div class="admin-list">
-            <button class="admin-card" data-admin-action="open-task-manager"><strong>Open Task Manager</strong><small>Processes and performance</small></button>
-            <button class="admin-card" data-admin-action="open-services"><strong>Open Services</strong><small>Windows service manager</small></button>
-            <button class="admin-card" data-admin-action="restart-guacamole"><strong>Restart Guacamole</strong><small>Restarts guacamole + guacd; current desktop will disconnect</small></button>
-            <button class="admin-card" data-admin-action="restart-docker"><strong>Restart Docker Desktop</strong><small>Guacamole will be unavailable while Docker restarts</small></button>
-            <button class="admin-card" data-admin-action="restart-tailscale"><strong>Restart Tailscale</strong><small>May require the MRD host to be elevated</small></button>
-            <button class="admin-card danger-outline" data-admin-action="restart-mrd"><strong>Restart MRD Host</strong><small>This page will reconnect after the host restarts</small></button>
+        <header class="panel-topbar"><button class="round-button back" id="adminBackBtn">‹</button><div><strong>MRD Admin</strong><small>Host controls</small></div><span class="toolbar-spacer"></span></header>
+        <div class="panel-scroll">
+          <button class="audio-banner" id="adminAudioBtn"><span class="audio-banner-icon">◖</span><span><small>AUDIO</small><strong id="adminAudioLabel">Mobile</strong></span><span class="chevron">›</span></button>
+
+          <div class="admin-group"><div class="panel-section-title"><h3>Windows</h3></div>
+            <button class="admin-row" data-admin-action="open-task-manager"><span class="admin-row-icon">⌁</span><span><strong>Task Manager</strong><small>Processes and performance</small></span><span>›</span></button>
+            <button class="admin-row" data-admin-action="open-services"><span class="admin-row-icon">≡</span><span><strong>Services</strong><small>Windows service manager</small></span><span>›</span></button>
+          </div>
+
+          <div class="admin-group"><div class="panel-section-title"><h3>MRD services</h3></div>
+            <button class="admin-row" data-admin-action="restart-guacamole"><span class="admin-row-icon">G</span><span><strong>Restart Guacamole</strong><small>Desktop gateway & guacd</small></span><span>›</span></button>
+            <button class="admin-row" data-admin-action="restart-docker"><span class="admin-row-icon">D</span><span><strong>Restart Docker</strong><small>Restarts Docker Desktop</small></span><span>›</span></button>
+            <button class="admin-row" data-admin-action="restart-tailscale"><span class="admin-row-icon">T</span><span><strong>Restart Tailscale</strong><small>Private network service</small></span><span>›</span></button>
+            <button class="admin-row" data-admin-action="restart-mrd"><span class="admin-row-icon">M</span><span><strong>Restart MRD Host</strong><small>Reload current MRD code</small></span><span>›</span></button>
+            <button class="admin-row accent-row" id="adminUpdateBtn"><span class="admin-row-icon">⇣</span><span><strong>Update MRD</strong><small>Pull latest GitHub code & restart</small></span><span>›</span></button>
           </div>
         </div>
       </section>
     </div>
+
+    <nav class="surface-dock" id="surfaceDock" hidden aria-label="Remote session controls">
+      <button id="dockCommandsBtn"><span>⌂</span><small>Commands</small></button>
+      <button id="dockKeyboardBtn"><span>⌨</span><small>Keyboard</small></button>
+      <button id="dockAudioBtn"><span>◖</span><small id="dockAudioLabel">Mobile</small></button>
+      <button id="dockInputBtn"><span id="dockInputIcon">◉</span><small id="dockInputLabel">Touch</small></button>
+      <button id="dockDisconnectBtn" class="dock-danger"><span>⏻</span><small>Disconnect</small></button>
+    </nav>
   </section>
 
   <section class="view-layer browser-layer" id="browserView" hidden>
-    <header class="browser-topbar">
-      <button class="back-button" data-close-view="browser">‹</button>
-      <form id="browserForm" class="address-form"><input id="addressInput" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="Search or enter website" /></form>
-      <button class="audio-route-button compact" id="browserAudioBtn" aria-label="Browser audio destination"><span>◖</span><strong id="browserAudioLabel">Mobile</strong></button>
+    <header class="screen-topbar">
+      <button class="round-button back" data-close-view="browser" aria-label="Back">‹</button>
+      <div class="screen-heading"><strong>Browser Engine</strong><small>Preview</small></div>
+      <button class="toolbar-pill" id="browserAudioBtn"><span class="toolbar-pill-icon">◖</span><strong id="browserAudioLabel">Mobile</strong></button>
     </header>
-    <div class="browser-stage">
-      <div class="browser-placeholder" id="browserPlaceholder">
-        <div class="browser-mark">◎</div><h2>PC Browser Engine</h2>
-        <p>The dedicated mobile browser transport remains a separate milestone. Desktop → Browser now opens Chrome immediately.</p>
-        <div class="feature-list"><span>Mobile viewport</span><span>Media mode</span><span>PC compute</span></div>
+    <div class="browser-preview">
+      <div class="browser-preview-card">
+        <div class="browser-mark">◎</div>
+        <div class="eyebrow">PC-POWERED BROWSER</div>
+        <h2>Dedicated mobile transport</h2>
+        <p>The standalone Chromium streaming engine is still a separate milestone. For the working path now, connect to Desktop and choose Browser.</p>
+        <button class="primary-cta compact" id="browserToDesktopBtn"><span>Open Desktop setup</span><span>›</span></button>
       </div>
     </div>
   </section>
 
-  <dialog id="audioDialog">
-    <form method="dialog" class="dialog-card audio-dialog-card">
-      <div class="audio-dialog-heading"><div><div class="eyebrow">AUDIO DESTINATION</div><h2 id="audioDialogTitle">Desktop audio</h2></div><button value="cancel" class="dialog-close" aria-label="Close">×</button></div>
-      <p class="audio-dialog-copy">Choose where this MRD session should play sound.</p>
+  <dialog id="audioDialog" class="sheet-dialog">
+    <form method="dialog" class="sheet-card">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><div><div class="eyebrow">AUDIO</div><h2 id="audioDialogTitle">Desktop audio</h2></div><button value="cancel" class="round-button subtle" aria-label="Close">×</button></div>
+      <p>Choose where this MRD session should play sound.</p>
       <div class="audio-options" role="listbox" aria-label="Audio destination">
         <button type="button" class="audio-option" data-audio-destination="desktop"><span class="audio-option-icon">▣</span><span><strong>Desktop</strong><small>PC speakers only</small></span><span class="audio-check">✓</span></button>
-        <button type="button" class="audio-option" data-audio-destination="mobile"><span class="audio-option-icon">▯</span><span><strong>Mobile</strong><small>Phone only</small></span><span class="audio-check">✓</span></button>
-        <button type="button" class="audio-option" data-audio-destination="both"><span class="audio-option-icon">◫</span><span><strong>Both</strong><small>PC and phone</small></span><span class="audio-check">✓</span></button>
+        <button type="button" class="audio-option" data-audio-destination="mobile"><span class="audio-option-icon">▯</span><span><strong>Mobile</strong><small>iPhone only</small></span><span class="audio-check">✓</span></button>
+        <button type="button" class="audio-option" data-audio-destination="both"><span class="audio-option-icon">◫</span><span><strong>Both</strong><small>PC and iPhone</small></span><span class="audio-check">✓</span></button>
         <button type="button" class="audio-option" data-audio-destination="muted"><span class="audio-option-icon">⊘</span><span><strong>Muted</strong><small>No audio output</small></span><span class="audio-check">✓</span></button>
       </div>
-      <p class="audio-routing-note" id="audioRoutingNote"></p>
+      <p class="sheet-note" id="audioRoutingNote"></p>
     </form>
   </dialog>
 
-  <dialog id="confirmDialog">
-    <form method="dialog" class="dialog-card">
-      <h2 id="confirmTitle">Confirm action</h2><p id="confirmText"></p>
-      <div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button value="confirm" class="danger-button" id="confirmAction">Confirm</button></div>
+  <dialog id="confirmDialog" class="sheet-dialog confirm-sheet">
+    <form method="dialog" class="sheet-card">
+      <div class="sheet-handle"></div>
+      <div class="confirm-glyph" id="confirmGlyph">!</div>
+      <h2 id="confirmTitle">Confirm action</h2>
+      <p id="confirmText"></p>
+      <div class="confirm-actions"><button value="cancel" class="secondary-cta">Cancel</button><button value="confirm" class="danger-cta" id="confirmAction">Confirm</button></div>
     </form>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=0.2.0" defer></script>
-  <script src="/update-control.js?v=0.2.1" defer></script>
+  <script src="/app.js?v=0.3.0" defer></script>
 </body>
 </html>
