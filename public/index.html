@@ -179,7 +179,7 @@
           </div>
 
           <div class="admin-group"><div class="panel-section-title"><h3>MRD services</h3></div>
-            <button class="admin-row" data-admin-action="restart-guacamole"><span class="admin-row-icon">G</span><span><strong>Restart Guacamole</strong><small>Desktop gateway & guacd</small></span><span>›</span></button>
+            <button class="admin-row" data-admin-action="restart-guacamole"><span class="admin-row-icon">G</span><span><strong>Restart Guacamole</strong><small>Restarts the remote desktop gateway</small></span><span>›</span></button>
             <button class="admin-row" data-admin-action="restart-docker"><span class="admin-row-icon">D</span><span><strong>Restart Docker</strong><small>Restarts Docker Desktop</small></span><span>›</span></button>
             <button class="admin-row" data-admin-action="restart-tailscale"><span class="admin-row-icon">T</span><span><strong>Restart Tailscale</strong><small>Private network service</small></span><span>›</span></button>
             <button class="admin-row" data-admin-action="restart-mrd"><span class="admin-row-icon">M</span><span><strong>Restart MRD Host</strong><small>Reload current MRD code</small></span><span>›</span></button>
@@ -238,6 +238,7 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/bootstrap.js?v=0.5.0" defer></script>
   <script src="/app.js?v=0.5.0" defer></script>
   <script src="/chrome-window.js?v=0.5.0" defer></script>
   <script src="/secret-client.js?v=0.5.0" defer></script>
