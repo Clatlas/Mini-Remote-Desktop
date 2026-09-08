@@ -315,11 +315,9 @@ using System.Text;
 
 public static class MrdChromeWindow {
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-    private const int SW_HIDE = 0;
     private const int SW_RESTORE = 9;
     private const int SW_MAXIMIZE = 3;
     private const uint SWP_NOZORDER = 0x0004;
-    private const uint SWP_NOACTIVATE = 0x0010;
     private const uint WM_CLOSE = 0x0010;
 
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -366,15 +364,19 @@ public static class MrdChromeWindow {
 
     public static bool PlaceAndShow(IntPtr hWnd, int x, int y, int width, int height) {
         if (!BelongsToChrome(hWnd)) return false;
-        ShowWindowAsync(hWnd, SW_HIDE);
+
+        // Do not maximize a Secret-mode Chrome window. Windows/Chrome can reapply
+        // the window's saved monitor affinity during maximize and move it back to
+        // a physical display. Restore first, then explicitly size it to the target
+        // virtual display so its monitor cannot be changed by maximize behavior.
+        ShowWindowAsync(hWnd, SW_RESTORE);
         int inset = 8;
         int w = Math.Max(320, width - inset * 2);
         int h = Math.Max(240, height - inset * 2);
-        SetWindowPos(hWnd, IntPtr.Zero, x + inset, y + inset, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        bool moved = SetWindowPos(hWnd, IntPtr.Zero, x + inset, y + inset, w, h, SWP_NOZORDER);
         ShowWindowAsync(hWnd, SW_RESTORE);
-        ShowWindowAsync(hWnd, SW_MAXIMIZE);
         SetForegroundWindow(hWnd);
-        return true;
+        return moved;
     }
 
     public static bool Close(IntPtr hWnd) {
