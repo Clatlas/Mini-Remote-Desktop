@@ -1,4 +1,4 @@
-const CACHE = 'mrd-v0.5.2-powershell-cleaner';
+const CACHE = 'mrd-v0.6.0-vdd-privacy';
 const APP_SHELL = [
   '/', '/index.html',
   '/styles.css?v=0.5.0', '/iphone-safearea.css?v=0.5.0',
@@ -20,14 +20,25 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/guacamole/') || url.pathname === '/update-result.json') return;
 
-  const request = url.pathname === '/extras.js'
+  const reloadPaths = new Set([
+    '/app.js',
+    '/chrome-window.js',
+    '/secret-client.js',
+    '/app-manager.js',
+    '/extras.js'
+  ]);
+  const request = reloadPaths.has(url.pathname)
     ? new Request(event.request, { cache: 'reload' })
     : event.request;
 
