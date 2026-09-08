@@ -22,6 +22,7 @@ export class SecretTransport {
     this.lastError = null;
     this.startedAt = null;
     this.lastStatusCheck = 0;
+    this.locked = false;
 
     this.videoWss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
     this.inputWss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
@@ -65,10 +66,11 @@ export class SecretTransport {
   }
 
   get status() {
-    const ready = process.platform === 'win32' && Boolean(this.ffmpegPath) && Boolean(this.display);
+    const ready = process.platform === 'win32' && Boolean(this.ffmpegPath) && Boolean(this.display) && !this.locked;
     return {
       ready,
-      phase: ready ? 'ready' : 'setup-required',
+      phase: this.locked ? 'locked' : ready ? 'ready' : 'setup-required',
+      locked: this.locked,
       ffmpegAvailable: Boolean(this.ffmpegPath),
       ffmpegPath: this.ffmpegPath,
       displayDetected: Boolean(this.display),
@@ -98,6 +100,7 @@ export class SecretTransport {
 
   readinessMessage() {
     if (process.platform !== 'win32') return 'Secret transport is available only on the Windows host.';
+    if (this.locked) return 'Windows is locked. Secret mode captures the interactive console desktop and cannot capture the secure Windows lock screen. Unlock the PC, then reconnect Secret mode.';
     if (!this.ffmpegPath) return 'FFmpeg is not installed for Secret transport. Run scripts/setup-secret-transport.ps1 as Administrator.';
     if (!this.display) return `MRD virtual display ${SOURCE_WIDTH}x${SOURCE_HEIGHT} could not be resolved from the active Windows display topology.`;
     return 'Secret transport is not ready.';
@@ -112,6 +115,12 @@ export class SecretTransport {
     if (process.platform !== 'win32') return this.status;
 
     try {
+      this.locked = await detectWindowsLocked();
+    } catch {
+      this.locked = false;
+    }
+
+    try {
       this.ffmpegPath = await findFfmpeg();
     } catch (error) {
       this.ffmpegPath = null;
@@ -123,6 +132,13 @@ export class SecretTransport {
     } catch (error) {
       this.display = null;
       this.lastError = this.lastError || error.message;
+    }
+
+    if (this.locked) {
+      this.stopCapture();
+      this.stopInputWorker();
+      this.startedAt = null;
+      this.lastError = this.readinessMessage();
     }
 
     return this.status;
@@ -160,7 +176,7 @@ export class SecretTransport {
   }
 
   ensureCapture() {
-    if (this.capture || !this.ffmpegPath || !this.display) return;
+    if (this.capture || this.locked || !this.ffmpegPath || !this.display) return;
     this.frameBuffer = Buffer.alloc(0);
     const d = this.display;
     const args = [
@@ -314,6 +330,15 @@ export class SecretTransport {
 function clamp01(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+async function detectWindowsLocked() {
+  if (process.platform !== 'win32') return false;
+  const { stdout } = await execFileAsync('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+    "if (Get-Process -Name LogonUI -ErrorAction SilentlyContinue) { 'LOCKED' } else { 'UNLOCKED' }"
+  ], { windowsHide: true, timeout: 2500, maxBuffer: 64 * 1024 });
+  return String(stdout || '').trim() === 'LOCKED';
 }
 
 async function findFfmpeg() {
