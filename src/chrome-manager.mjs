@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const GOOGLE = 'https://www.google.com/';
 const MODES = new Set(['normal', 'incognito']);
+const MRD_DISPLAY_WIDTH = Number(process.env.MRD_SECRET_WIDTH || 880);
+const MRD_DISPLAY_HEIGHT = Number(process.env.MRD_SECRET_HEIGHT || 1912);
 
 export class ChromeManager {
   constructor(root) {
@@ -18,6 +20,7 @@ export class ChromeManager {
     this.managed = null;
     this.stateLoaded = false;
     this.lastError = null;
+    this.targetDisplay = null;
   }
 
   get status() {
@@ -30,8 +33,10 @@ export class ChromeManager {
       hwnd: this.managed?.hwnd || null,
       mode: this.managed?.mode || null,
       launchedAt: this.managed?.launchedAt || null,
+      targetDisplay: this.targetDisplay,
       singleton: true,
       silentLaunch: true,
+      virtualDisplayRequired: true,
       lastError: this.lastError
     };
   }
@@ -41,6 +46,7 @@ export class ChromeManager {
     if (process.platform !== 'win32') {
       this.chromePath = null;
       this.profileDirectory = null;
+      this.targetDisplay = null;
       return this.status;
     }
 
@@ -66,26 +72,26 @@ export class ChromeManager {
     await this.refreshStatus();
     if (!this.chromePath) return { ok: false, error: this.lastError || 'Google Chrome is not installed.' };
 
-    const target = normalizeDisplay(display);
+    const target = await resolveMrdVirtualDisplay(display);
+    this.targetDisplay = target;
+    if (!target) {
+      this.lastError = `MRD Chrome requires the ${MRD_DISPLAY_WIDTH}x${MRD_DISPLAY_HEIGHT} virtual display. No physical-monitor fallback is allowed.`;
+      return { ok: false, error: this.lastError };
+    }
 
     if (this.managed?.hwnd) {
       if (this.managed.mode === mode) {
         const focused = await placeAndShow(this.managed.hwnd, target);
         if (focused) {
-          return { ok: true, action: 'focused', mode, status: this.status };
+          return { ok: true, action: 'focused', mode, targetDisplay: target, status: this.status };
         }
-        if (target) {
-          try { await closeWindow(this.managed.hwnd); } catch {}
-          this.lastError = 'MRD could not confine the managed Chrome window to the Secret virtual display.';
-          this.managed = null;
-          await this.saveState();
-          return { ok: false, error: this.lastError };
-        }
+        try { await closeWindow(this.managed.hwnd); } catch {}
+        this.lastError = 'MRD could not confine the managed Chrome window to the MRD virtual display.';
         this.managed = null;
         await this.saveState();
-      } else {
-        await this.close();
+        return { ok: false, error: this.lastError };
       }
+      await this.close();
     }
 
     const before = new Set(await listChromeWindows());
@@ -93,22 +99,13 @@ export class ChromeManager {
       '--new-window',
       '--no-first-run',
       '--no-default-browser-check',
-      '--disable-session-crashed-bubble'
+      '--disable-session-crashed-bubble',
+      `--window-position=${target.x + 8},${target.y + 8}`,
+      `--window-size=${Math.max(640, target.width - 16)},${Math.max(480, target.height - 16)}`
     ];
-
-    // Starting minimized makes cross-monitor placement unreliable because the
-    // restore can race SetWindowPos and Chrome can fall back to its saved
-    // physical-monitor rectangle. Secret mode launches directly onto target.
-    if (!target) args.push('--start-minimized');
 
     if (this.profileDirectory) args.push(`--profile-directory=${this.profileDirectory}`);
     if (mode === 'incognito') args.push('--incognito');
-
-    if (target) {
-      args.push(`--window-position=${target.x + 8},${target.y + 8}`);
-      args.push(`--window-size=${Math.max(640, target.width - 16)},${Math.max(480, target.height - 16)}`);
-    }
-
     args.push(normalizeUrl(url));
 
     try {
@@ -139,20 +136,18 @@ export class ChromeManager {
 
     const shown = await placeAndShow(hwnd, target);
     if (!shown) {
-      if (target) {
-        try { await closeWindow(hwnd); } catch {}
-        this.managed = null;
-        await this.saveState();
-        this.lastError = 'Chrome opened, but MRD could not verify that its window was inside the Secret virtual display. The window was closed instead of leaving it on a physical monitor.';
-        return { ok: false, error: this.lastError };
-      }
-      this.lastError = 'Chrome opened, but Windows did not confirm focus/placement.';
+      try { await closeWindow(hwnd); } catch {}
+      this.managed = null;
+      await this.saveState();
+      this.lastError = 'Chrome opened, but MRD could not verify its window inside the MRD virtual display. It was closed instead of being left on a physical monitor.';
+      return { ok: false, error: this.lastError };
     }
 
     return {
       ok: true,
       action: 'launched',
       mode,
+      targetDisplay: target,
       status: this.status
     };
   }
@@ -160,10 +155,12 @@ export class ChromeManager {
   async focus({ display = null } = {}) {
     await this.refreshStatus();
     if (!this.managed?.hwnd) return { ok: false, error: 'MRD does not currently own a Chrome window.' };
-    const target = normalizeDisplay(display);
+    const target = await resolveMrdVirtualDisplay(display);
+    this.targetDisplay = target;
+    if (!target) return { ok: false, error: `MRD Chrome requires the ${MRD_DISPLAY_WIDTH}x${MRD_DISPLAY_HEIGHT} virtual display.` };
     const ok = await placeAndShow(this.managed.hwnd, target);
-    if (!ok) return { ok: false, error: target ? 'The managed Chrome window could not be verified on the Secret virtual display.' : 'The managed Chrome window is no longer available.' };
-    return { ok: true, action: 'focused', mode: this.managed.mode, status: this.status };
+    if (!ok) return { ok: false, error: 'The managed Chrome window could not be verified on the MRD virtual display.' };
+    return { ok: true, action: 'focused', mode: this.managed.mode, targetDisplay: target, status: this.status };
   }
 
   async close() {
@@ -261,7 +258,55 @@ function normalizeDisplay(value) {
   const width = Number(value?.width);
   const height = Number(value?.height);
   if (![x, y, width, height].every(Number.isFinite) || width < 320 || height < 240) return null;
-  return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+  return {
+    x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height),
+    deviceName: value?.deviceName ? String(value.deviceName) : null
+  };
+}
+
+async function resolveMrdVirtualDisplay(preferred = null) {
+  const preferredTarget = normalizeDisplay(preferred);
+  if (preferredTarget && preferredTarget.width === MRD_DISPLAY_WIDTH && preferredTarget.height === MRD_DISPLAY_HEIGHT) {
+    return preferredTarget;
+  }
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const detected = await findMrdVirtualDisplay();
+    if (detected) return detected;
+    if (attempt < 3) await delay(200);
+  }
+  return null;
+}
+
+async function findMrdVirtualDisplay() {
+  if (process.platform !== 'win32') return null;
+  const script = `
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+$screen = [System.Windows.Forms.Screen]::AllScreens |
+  Where-Object { $_.Bounds.Width -eq ${MRD_DISPLAY_WIDTH} -and $_.Bounds.Height -eq ${MRD_DISPLAY_HEIGHT} -and -not $_.Primary } |
+  Select-Object -First 1
+if ($screen) {
+  [pscustomobject]@{
+    x = $screen.Bounds.X
+    y = $screen.Bounds.Y
+    width = $screen.Bounds.Width
+    height = $screen.Bounds.Height
+    deviceName = $screen.DeviceName
+  } | ConvertTo-Json -Compress
+}
+`;
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
+    ], { windowsHide: true, timeout: 5000, maxBuffer: 128 * 1024 });
+    const text = String(stdout || '').trim();
+    if (!text) return null;
+    const value = JSON.parse(text);
+    return normalizeDisplay(value);
+  } catch {
+    return null;
+  }
 }
 
 async function waitForNewChromeWindow(before, timeoutMs) {
@@ -301,11 +346,10 @@ async function isChromeWindow(hwnd) {
 
 async function placeAndShow(hwnd, display) {
   if (process.platform !== 'win32' || !/^\d+$/.test(String(hwnd || ''))) return false;
+  const target = normalizeDisplay(display);
+  if (!target) return false;
   try {
-    const target = normalizeDisplay(display);
-    const command = target
-      ? `[MrdChromeWindow]::PlaceAndShow([IntPtr]${String(hwnd)},${target.x},${target.y},${target.width},${target.height})`
-      : `[MrdChromeWindow]::FocusAndMaximize([IntPtr]${String(hwnd)})`;
+    const command = `[MrdChromeWindow]::PlaceAndShow([IntPtr]${String(hwnd)},${target.x},${target.y},${target.width},${target.height})`;
     const stdout = await runWindowScript(command);
     return stdout.trim().toLowerCase() === 'true';
   } catch {
@@ -338,7 +382,6 @@ using System.Threading;
 public static class MrdChromeWindow {
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     private const int SW_RESTORE = 9;
-    private const int SW_MAXIMIZE = 3;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint WM_CLOSE = 0x0010;
 
@@ -395,14 +438,6 @@ public static class MrdChromeWindow {
         return BelongsToChrome(hWnd);
     }
 
-    public static bool FocusAndMaximize(IntPtr hWnd) {
-        if (!BelongsToChrome(hWnd)) return false;
-        ShowWindow(hWnd, SW_RESTORE);
-        ShowWindow(hWnd, SW_MAXIMIZE);
-        SetForegroundWindow(hWnd);
-        return true;
-    }
-
     public static bool PlaceAndShow(IntPtr hWnd, int x, int y, int width, int height) {
         if (!BelongsToChrome(hWnd)) return false;
 
@@ -413,9 +448,6 @@ public static class MrdChromeWindow {
         int h = Math.Max(240, height - inset * 2);
         bool moved = false;
 
-        // Chrome can restore its saved physical-monitor rectangle shortly after
-        // creation. Keep enforcing the Secret target during that startup window,
-        // and verify the actual HWND center is inside the virtual display.
         for (int attempt = 0; attempt < 12; attempt++) {
             ShowWindow(hWnd, SW_RESTORE);
             if (IsIconic(hWnd)) {
