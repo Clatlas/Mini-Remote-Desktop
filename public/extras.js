@@ -22,7 +22,7 @@
       .diagnostic-row .admin-row-icon,.powershell-row .admin-row-icon{color:var(--accent-strong)}
       .diagnostics-dialog{width:min(calc(100% - 20px),420px);max-width:420px;max-height:82dvh;border:1px solid var(--border);border-radius:22px;padding:0;background:var(--surface);color:var(--text)}.diagnostics-dialog::backdrop{background:rgba(0,0,0,.72)}.diagnostics-card{padding:16px}.diagnostics-card header{display:flex;align-items:center;justify-content:space-between;gap:12px}.diagnostics-card h2{margin:0;font-size:17px}.diagnostics-card header button{width:42px;height:42px;border:0;border-radius:13px;background:var(--surface-2);color:var(--text);font-size:20px}.diagnostics-card pre{margin:14px 0 0;max-height:60dvh;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre-wrap;word-break:break-word;background:#06080b;border:1px solid var(--border);border-radius:15px;padding:12px;color:#c9d2df;font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .powershell-dashboard-section .primary-launch-grid{grid-template-columns:1fr}.powershell-dashboard-section .launch-icon{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      .powershell-dialog{width:min(calc(100% - 16px),520px);max-width:520px;height:min(88dvh,780px);max-height:88dvh;border:1px solid var(--border);border-radius:22px;padding:0;background:var(--surface);color:var(--text)}.powershell-dialog::backdrop{background:rgba(0,0,0,.78)}.powershell-card{height:100%;display:flex;flex-direction:column;padding:14px;box-sizing:border-box;gap:12px}.powershell-card header{display:flex;align-items:center;justify-content:space-between;gap:12px}.powershell-card h2{margin:0;font-size:17px}.powershell-card header button{width:42px;height:42px;border:0;border-radius:13px;background:var(--surface-2);color:var(--text);font-size:20px}.powershell-copy{margin:-5px 0 0;color:var(--muted);font-size:11px;line-height:1.45}.powershell-input{width:100%;min-height:180px;flex:0 0 34%;resize:none;box-sizing:border-box;border:1px solid var(--border);border-radius:15px;background:#06080b;color:#eef4ff;padding:12px;font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;-webkit-appearance:none}.powershell-input:focus{border-color:var(--accent-strong)}.powershell-actions{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px}.powershell-actions button{min-height:44px;border:1px solid var(--border);border-radius:13px;background:var(--surface-2);color:var(--text);font-weight:700}.powershell-actions .powershell-run{background:var(--accent);color:#fff;border-color:transparent}.powershell-actions button:disabled{opacity:.55}.powershell-output-wrap{min-height:0;flex:1;display:flex;flex-direction:column;gap:7px}.powershell-status{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:10px}.powershell-output{margin:0;min-height:0;flex:1;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre-wrap;word-break:break-word;background:#06080b;border:1px solid var(--border);border-radius:15px;padding:12px;color:#c9d2df;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.powershell-output[data-error="true"]{color:#ffb6b6}
+      .powershell-dialog{width:min(calc(100% - 16px),520px);max-width:520px;height:min(88dvh,780px);max-height:88dvh;border:1px solid var(--border);border-radius:22px;padding:0;background:var(--surface);color:var(--text)}.powershell-dialog::backdrop{background:rgba(0,0,0,.78)}.powershell-card{height:100%;display:flex;flex-direction:column;padding:14px;box-sizing:border-box;gap:10px}.powershell-card header{display:flex;align-items:center;justify-content:space-between;gap:12px}.powershell-card h2{margin:0;font-size:17px}.powershell-card header button{width:42px;height:42px;border:0;border-radius:13px;background:var(--surface-2);color:var(--text);font-size:20px}.powershell-copy{margin:-5px 0 0;color:var(--muted);font-size:11px;line-height:1.45}.powershell-quick{display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:1px 0 4px;scrollbar-width:none}.powershell-quick::-webkit-scrollbar{display:none}.powershell-quick button{flex:0 0 auto;min-height:36px;border:1px solid var(--border);border-radius:11px;background:var(--surface-2);color:var(--text);padding:0 11px;font-size:11px;font-weight:700;white-space:nowrap}.powershell-quick button:active{transform:scale(.98)}.powershell-input{width:100%;min-height:150px;flex:0 0 31%;resize:none;box-sizing:border-box;border:1px solid var(--border);border-radius:15px;background:#06080b;color:#eef4ff;padding:12px;font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;-webkit-appearance:none}.powershell-input:focus{border-color:var(--accent-strong)}.powershell-actions{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:8px}.powershell-actions button{min-height:44px;border:1px solid var(--border);border-radius:13px;background:var(--surface-2);color:var(--text);font-weight:700}.powershell-actions .powershell-run{background:var(--accent);color:#fff;border-color:transparent}.powershell-actions button:disabled{opacity:.55}.powershell-output-wrap{min-height:0;flex:1;display:flex;flex-direction:column;gap:7px}.powershell-status{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:10px}.powershell-output{margin:0;min-height:0;flex:1;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre-wrap;word-break:break-word;background:#06080b;border:1px solid var(--border);border-radius:15px;padding:12px;color:#c9d2df;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.powershell-output[data-error="true"]{color:#ffb6b6}
     `;
     document.head.appendChild(style);
 
@@ -128,12 +128,27 @@
     dialog.innerHTML = `
       <div class="powershell-card">
         <header><div><div class="eyebrow">HOME PC</div><h2>PowerShell Console</h2></div><button id="powershellClose" aria-label="Close">×</button></header>
-        <p class="powershell-copy">Paste a command or multi-line script. It runs as the Windows account hosting MRD. Nothing is saved to command history.</p>
+        <p class="powershell-copy">Paste a command or choose a preset. Presets load into the editor first so you can review them before Run.</p>
+        <div class="powershell-quick" aria-label="PowerShell quick commands">
+          <button type="button" data-ps-quick="update">Update MRD</button>
+          <button type="button" data-ps-quick="status">MRD Status</button>
+          <button type="button" data-ps-quick="displays">Displays</button>
+          <button type="button" data-ps-quick="logs">Tail Log</button>
+          <button type="button" data-ps-quick="restart">Restart MRD</button>
+        </div>
         <textarea id="powershellInput" class="powershell-input" maxlength="15900" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste PowerShell here…"></textarea>
         <div class="powershell-actions"><button id="powershellClear">Clear</button><button id="powershellCopy">Copy output</button><button id="powershellRun" class="powershell-run">Run</button></div>
         <div class="powershell-output-wrap"><div class="powershell-status"><span id="powershellState">Ready</span><span id="powershellExit"></span></div><pre id="powershellOutput" class="powershell-output">Output will appear here.</pre></div>
       </div>`;
     document.body.appendChild(dialog);
+
+    const quickCommands = {
+      update: `Set-Location 'B:\\Mini-Remote-Desktop'\ngit pull --ff-only\ngit rev-parse --short HEAD`,
+      status: `Set-Location 'B:\\Mini-Remote-Desktop'\n'=== GIT ==='\ngit status -sb\n"HEAD: $(git rev-parse --short HEAD)"\n'=== MRD LISTENER ==='\nGet-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,OwningProcess`,
+      displays: `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.Screen]::AllScreens | Select-Object DeviceName,Primary,@{N='X';E={$_.Bounds.X}},@{N='Y';E={$_.Bounds.Y}},@{N='Width';E={$_.Bounds.Width}},@{N='Height';E={$_.Bounds.Height}} | Format-Table -AutoSize\nGet-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'ROOT\\MTTVDD*' -or $_.FriendlyName -match 'Virtual Display Driver' } | Select-Object Status,Class,FriendlyName,InstanceId | Format-Table -AutoSize`,
+      logs: `Get-Content 'B:\\Mini-Remote-Desktop\\.runtime\\mrd.log' -Tail 80 -ErrorAction SilentlyContinue`,
+      restart: `Set-Location 'B:\\Mini-Remote-Desktop'\n.\\Start-MRD.cmd`
+    };
 
     const openConsole = () => {
       dialog.showModal();
@@ -142,6 +157,16 @@
     $('powershellDashboardBtn')?.addEventListener('click', openConsole);
     adminRow?.addEventListener('click', openConsole);
     $('powershellClose')?.addEventListener('click', () => dialog.close());
+    dialog.querySelectorAll('[data-ps-quick]').forEach(button => {
+      button.addEventListener('click', () => {
+        const command = quickCommands[button.dataset.psQuick];
+        if (!command) return;
+        $('powershellInput').value = command;
+        $('powershellState').textContent = `${button.textContent.trim()} ready`;
+        $('powershellExit').textContent = 'Tap Run';
+        $('powershellInput').focus();
+      });
+    });
     $('powershellClear')?.addEventListener('click', () => {
       $('powershellInput').value = '';
       $('powershellOutput').textContent = 'Output will appear here.';
