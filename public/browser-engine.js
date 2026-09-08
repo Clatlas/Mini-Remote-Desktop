@@ -13,7 +13,9 @@
     media: null,
     pointer: null,
     controlsTimer: null,
-    keyboardOpen: false
+    keyboardOpen: false,
+    remoteViewport: { width: 440, height: 956 },
+    lastEnterAt: 0
   };
 
   buildUi();
@@ -39,15 +41,11 @@
       oldBody.className = 'browser-engine-shell';
       oldBody.innerHTML = `
         <div class="browser-nav">
-          <button id="browserBackBtn" aria-label="Back">‹</button>
-          <button id="browserForwardBtn" aria-label="Forward">›</button>
-          <button id="browserReloadBtn" aria-label="Reload">↻</button>
           <form id="browserAddressForm" class="browser-address-form">
-            <span>⌕</span>
-            <input id="browserAddress" type="url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Search or enter address" />
+            <span class="browser-address-icon">⌕</span>
+            <input id="browserAddress" type="url" inputmode="url" enterkeyhint="go" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Search or enter address" />
+            <button id="browserAddressGo" class="browser-address-go" type="submit">Go</button>
           </form>
-          <button id="browserTabsBtn" class="browser-tab-count" aria-label="Tabs">1</button>
-          <button id="browserNewTabBtn" aria-label="New tab">＋</button>
         </div>
         <div class="browser-stage" id="browserStage">
           <div class="browser-loading" id="browserLoading"><span class="browser-spinner"></span><strong>Starting Browser Engine</strong><small>Chrome is running privately on Home PC</small></div>
@@ -79,10 +77,10 @@
         </div>
         <nav class="browser-bottom-bar">
           <button id="browserBottomBack"><span>‹</span><small>Back</small></button>
-          <button id="browserBottomKeyboard"><span>⌨</span><small>Keyboard</small></button>
-          <button id="browserBottomAudio"><span>◖</span><small>Audio</small></button>
+          <button id="browserBottomForward"><span>›</span><small>Forward</small></button>
+          <button id="browserBottomReload"><span>↻</span><small>Reload</small></button>
           <button id="browserBottomTabs"><span>▣</span><small>Tabs</small></button>
-          <button id="browserBottomClose"><span>×</span><small>Close</small></button>
+          <button id="browserBottomKeyboard"><span>⌨</span><small>Keyboard</small></button>
         </nav>
         <div class="browser-tabs-sheet" id="browserTabsSheet" hidden>
           <div class="browser-tabs-card">
@@ -91,7 +89,7 @@
             <button class="browser-new-tab-wide" id="browserNewTabWide">＋ New tab</button>
           </div>
         </div>
-        <textarea id="browserKeyboardTarget" class="browser-keyboard-target" rows="1" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>
+        <textarea id="browserKeyboardTarget" class="browser-keyboard-target" rows="1" enterkeyhint="go" aria-label="Remote browser keyboard" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>
       `;
     }
 
@@ -100,9 +98,8 @@
     style.textContent = `
       .browser-layer .screen-topbar{gap:7px}.browser-layer .screen-heading{min-width:0}.browser-keyboard-button{width:42px;height:42px;border-radius:14px;font-size:17px}
       .browser-engine-shell{flex:1;min-height:0;display:flex;flex-direction:column;background:#020304;overflow:hidden}
-      .browser-nav{height:56px;flex:none;display:grid;grid-template-columns:36px 36px 36px 1fr 38px 38px;align-items:center;gap:5px;padding:6px 8px;border-bottom:1px solid var(--border);background:#0b0f15}
-      .browser-nav>button{height:40px;border:0;border-radius:12px;background:var(--surface);font-size:19px}.browser-tab-count{font-size:12px!important;font-weight:800;border:1px solid var(--border)!important}
-      .browser-address-form{height:42px;min-width:0;border:1px solid var(--border);background:#070a0f;border-radius:14px;display:flex;align-items:center;gap:6px;padding:0 9px}.browser-address-form span{color:var(--muted)}.browser-address-form input{min-width:0;width:100%;border:0;outline:0;background:transparent;color:var(--text);font-size:12px}
+      .browser-nav{min-height:60px;flex:none;display:flex;align-items:center;padding:7px 10px;border-bottom:1px solid var(--border);background:#0b0f15}
+      .browser-address-form{height:46px;width:100%;min-width:0;border:1px solid var(--border);background:#070a0f;border-radius:15px;display:grid;grid-template-columns:22px 1fr 48px;align-items:center;gap:5px;padding:0 5px 0 10px}.browser-address-icon{color:var(--muted);font-size:16px}.browser-address-form input{min-width:0;width:100%;height:42px;border:0;outline:0;background:transparent;color:var(--text);font-size:15px}.browser-address-go{height:36px;border:0;border-radius:11px;background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:800}
       .browser-stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;touch-action:none}.browser-stage>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;touch-action:none;-webkit-user-select:none;user-select:none}.browser-loading{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;background:#05070a}.browser-loading strong{font-size:14px}.browser-loading small{font-size:11px;color:var(--muted)}.browser-spinner{width:30px;height:30px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--accent);border-radius:50%;animation:mrd-browser-spin .8s linear infinite}@keyframes mrd-browser-spin{to{transform:rotate(360deg)}}
       .browser-bottom-bar{height:calc(62px + env(safe-area-inset-bottom));padding:5px 4px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--border);background:rgba(7,9,13,.97);flex:none}.browser-bottom-bar button{border:0;background:transparent;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}.browser-bottom-bar span{font-size:19px;line-height:1}.browser-bottom-bar small{font-size:9px;color:var(--muted)}
       .browser-tabs-sheet{position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.55);display:flex;align-items:flex-end}.browser-tabs-card{width:100%;max-height:72%;border-radius:24px 24px 0 0;background:var(--surface);border:1px solid var(--border);padding:16px 14px calc(env(safe-area-inset-bottom) + 16px);overflow:auto}.browser-tabs-card header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.browser-tabs-card header strong,.browser-tabs-card header small{display:block}.browser-tabs-card header small{color:var(--muted);font-size:10px;margin-top:2px}.browser-tabs-card header button{width:40px;height:40px;border:0;border-radius:13px;background:var(--surface-2);font-size:20px}.browser-tab-row{display:grid;grid-template-columns:1fr 38px;gap:8px;margin:8px 0}.browser-tab-open{min-width:0;text-align:left;border:1px solid var(--border);background:var(--surface-2);border-radius:15px;padding:11px}.browser-tab-open.active{border-color:rgba(103,162,255,.45);background:var(--accent-soft)}.browser-tab-open strong,.browser-tab-open small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.browser-tab-open strong{font-size:12px}.browser-tab-open small{font-size:9px;color:var(--muted);margin-top:3px}.browser-tab-close{border:0;border-radius:13px;background:var(--surface-2);font-size:18px}.browser-new-tab-wide{width:100%;height:48px;margin-top:10px;border:1px solid rgba(103,162,255,.25);border-radius:15px;background:var(--accent-soft);color:var(--accent-strong);font-weight:700}
@@ -124,17 +121,10 @@
     }, true);
 
     view.querySelector('[data-close-view="browser"]')?.addEventListener('click', () => setTimeout(closeBrowserEngine, 0));
-    $('browserBottomClose')?.addEventListener('click', () => {
-      view.querySelector('[data-close-view="browser"]')?.click();
-    });
-
-    $('browserBackBtn')?.addEventListener('click', () => send({ type:'back' }));
     $('browserBottomBack')?.addEventListener('click', () => send({ type:'back' }));
-    $('browserForwardBtn')?.addEventListener('click', () => send({ type:'forward' }));
-    $('browserReloadBtn')?.addEventListener('click', () => send({ type:'reload' }));
-    $('browserNewTabBtn')?.addEventListener('click', () => send({ type:'new-tab' }));
+    $('browserBottomForward')?.addEventListener('click', () => send({ type:'forward' }));
+    $('browserBottomReload')?.addEventListener('click', () => send({ type:'reload' }));
     $('browserNewTabWide')?.addEventListener('click', () => { send({ type:'new-tab' }); hideTabs(); });
-    $('browserTabsBtn')?.addEventListener('click', showTabs);
     $('browserBottomTabs')?.addEventListener('click', showTabs);
     $('browserTabsClose')?.addEventListener('click', hideTabs);
 
@@ -146,16 +136,34 @@
 
     $('browserKeyboardBtn')?.addEventListener('click', toggleKeyboard);
     $('browserBottomKeyboard')?.addEventListener('click', toggleKeyboard);
-    $('browserBottomAudio')?.addEventListener('click', () => $('browserAudioBtn')?.click());
 
     const keyboard = $('browserKeyboardTarget');
+    const sendRemoteEnter = () => {
+      const now = Date.now();
+      if (now - state.lastEnterAt < 120) return;
+      state.lastEnterAt = now;
+      send({ type:'key', key:'Enter' });
+    };
+    keyboard?.addEventListener('beforeinput', event => {
+      if (!['insertLineBreak','insertParagraph'].includes(event.inputType)) return;
+      event.preventDefault();
+      sendRemoteEnter();
+    });
     keyboard?.addEventListener('input', () => {
       if (!keyboard.value) return;
-      send({ type:'text', text:keyboard.value });
+      const hasEnter = /[\r\n]/.test(keyboard.value);
+      const text = keyboard.value.replace(/[\r\n]+/g, '');
+      if (text) send({ type:'text', text });
       keyboard.value = '';
+      if (hasEnter) sendRemoteEnter();
     });
     keyboard?.addEventListener('keydown', event => {
-      const special = new Set(['Backspace','Tab','Enter','Escape','ArrowLeft','ArrowUp','ArrowRight','ArrowDown','Delete','Home','End','PageUp','PageDown']);
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        sendRemoteEnter();
+        return;
+      }
+      const special = new Set(['Backspace','Tab','Escape','ArrowLeft','ArrowUp','ArrowRight','ArrowDown','Delete','Home','End','PageUp','PageDown']);
       if (!special.has(event.key)) return;
       event.preventDefault();
       send({ type:'key', key:event.key });
@@ -253,10 +261,12 @@
   function renderState(next) {
     state.targetId = next.activeTargetId || null;
     state.tabs = next.tabs || [];
+    if (next.status?.viewport?.width && next.status?.viewport?.height) state.remoteViewport = next.status.viewport;
     if (next.active?.url && document.activeElement !== $('browserAddress')) $('browserAddress').value = displayAddress(next.active.url);
     const heading = view.querySelector('.screen-heading strong');
     if (heading) heading.textContent = next.active?.title || 'Browser Engine';
-    $('browserTabsBtn').textContent = String(Math.max(1, state.tabs.length));
+    const tabLabel = $('browserBottomTabs')?.querySelector('small');
+    if (tabLabel) tabLabel.textContent = `Tabs · ${Math.max(1, state.tabs.length)}`;
     renderTabs();
     renderMedia(next.media || state.media);
   }
@@ -300,9 +310,6 @@
     $('browserMediaSeek').value = duration > 0 ? String(Math.round((current / duration) * 1000)) : '0';
     $('browserMediaVolume').value = String(Math.round(Number(state.media.volume ?? 1) * 100));
 
-    if (state.media.playing && localStorage.getItem('mrdAutoMediaMode') !== 'off' && $('browserMediaMode').hidden) {
-      openMediaMode();
-    }
   }
 
   function openMediaMode() {
@@ -311,8 +318,6 @@
     $('browserStage').classList.add('media-expanded');
     document.body.classList.add('mrd-browser-media');
     showMediaControlsTemporarily();
-    void requestLandscape();
-    void requestMediaFullscreen();
   }
 
   function closeMediaMode() {
@@ -372,38 +377,46 @@
     const frame = $('browserFrame');
     frame.setPointerCapture?.(event.pointerId);
     const p = point(event);
-    state.pointer = { id:event.pointerId, last:p };
-    send({ type:'touch-start', ...p });
+    state.pointer = { id:event.pointerId, startX:event.clientX, startY:event.clientY, lastX:event.clientX, lastY:event.clientY, moved:false, start:p };
   }
 
   function pointerMove(event) {
     if (!state.ready || !state.pointer || state.pointer.id !== event.pointerId) return;
     event.preventDefault();
+    const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY);
+    if (distance > 7) state.pointer.moved = true;
+    if (!state.pointer.moved) return;
     const p = point(event);
-    state.pointer.last = p;
-    send({ type:'touch-move', ...p });
+    const deltaX = (state.pointer.lastX - event.clientX) * 1.35;
+    const deltaY = (state.pointer.lastY - event.clientY) * 1.35;
+    state.pointer.lastX = event.clientX;
+    state.pointer.lastY = event.clientY;
+    if (Math.abs(deltaX) >= 0.75 || Math.abs(deltaY) >= 0.75) send({ type:'wheel', deltaX:Math.round(deltaX), deltaY:Math.round(deltaY), ...p });
   }
 
   function pointerUp(event) {
     if (!state.pointer || state.pointer.id !== event.pointerId) return;
     event.preventDefault();
-    send({ type:'touch-end' });
+    const p = point(event);
+    if (!state.pointer.moved) {
+      send({ type:'mouse', event:'mouseMoved', button:'none', ...p });
+      send({ type:'mouse', event:'mousePressed', button:'left', ...p });
+      send({ type:'mouse', event:'mouseReleased', button:'left', ...p });
+    }
     state.pointer = null;
   }
 
   function point(event) {
     const frame = $('browserFrame');
     const box = frame.getBoundingClientRect();
-    const viewport = currentViewport();
-    const imageRatio = viewport.width / viewport.height;
+    const naturalWidth = frame.naturalWidth || Number(state.remoteViewport?.width) || 440;
+    const naturalHeight = frame.naturalHeight || Number(state.remoteViewport?.height) || 956;
+    const imageRatio = naturalWidth / Math.max(1, naturalHeight);
     const boxRatio = box.width / Math.max(1, box.height);
     let width = box.width, height = box.height, left = box.left, top = box.top;
     if (boxRatio > imageRatio) { width = box.height * imageRatio; left += (box.width - width) / 2; }
     else { height = box.width / imageRatio; top += (box.height - height) / 2; }
-    return {
-      x: clamp((event.clientX - left) / Math.max(1, width), 0, 1),
-      y: clamp((event.clientY - top) / Math.max(1, height), 0, 1)
-    };
+    return { x: clamp((event.clientX - left) / Math.max(1, width), 0, 1), y: clamp((event.clientY - top) / Math.max(1, height), 0, 1) };
   }
 
   function syncViewport() {

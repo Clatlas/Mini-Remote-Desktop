@@ -399,7 +399,7 @@ export class BrowserEngine {
     const y = clamp(Number(message.y) || 0, 0, 1) * this.viewport.height;
     const kind = ['mouseMoved', 'mousePressed', 'mouseReleased'].includes(message.event) ? message.event : 'mouseMoved';
     const button = ['left', 'right', 'middle', 'none'].includes(message.button) ? message.button : 'none';
-    await this.cdp.send('Input.dispatchMouseEvent', { type: kind, x, y, button, clickCount: kind === 'mousePressed' ? 1 : 0 });
+    await this.cdp.send('Input.dispatchMouseEvent', { type: kind, x, y, button, clickCount: kind === 'mouseMoved' ? 0 : 1 });
   }
 
   async dispatchWheel(message) {
