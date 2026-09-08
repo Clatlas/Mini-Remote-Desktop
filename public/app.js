@@ -16,7 +16,7 @@ const app = {
   commandBrowser: $('commandBrowser'), commandApps: $('commandApps'), commandDesktop: $('commandDesktop'), commandAdmin: $('commandAdmin'), commandUpdate: $('commandUpdate'), disconnectBtn: $('disconnectBtn'),
   surfaceDock: $('surfaceDock'), dockCommandsBtn: $('dockCommandsBtn'), dockKeyboardBtn: $('dockKeyboardBtn'), dockAudioBtn: $('dockAudioBtn'), dockAudioLabel: $('dockAudioLabel'),
   dockInputBtn: $('dockInputBtn'), dockInputIcon: $('dockInputIcon'), dockInputLabel: $('dockInputLabel'), dockDisconnectBtn: $('dockDisconnectBtn'),
-  browserView: $('browserView'), browserAudioBtn: $('browserAudioBtn'), browserAudioLabel: $('browserAudioLabel'), browserToDesktopBtn: $('browserToDesktopBtn'),
+  browserView: $('browserView'), browserAudioBtn: $('browserAudioBtn'), browserAudioLabel: $('browserAudioLabel'),
   audioDialog: $('audioDialog'), audioDialogTitle: $('audioDialogTitle'), audioRoutingNote: $('audioRoutingNote'),
   confirmDialog: $('confirmDialog'), confirmGlyph: $('confirmGlyph'), confirmTitle: $('confirmTitle'), confirmText: $('confirmText'), confirmAction: $('confirmAction'),
   toast: $('toast')
@@ -112,7 +112,6 @@ function bindUi() {
   document.querySelectorAll('[data-admin-action]').forEach(btn => btn.addEventListener('click', () => runAdminAction(btn.dataset.adminAction, btn)));
   document.querySelectorAll('[data-power]').forEach(btn => btn.addEventListener('click', () => requestPower(btn.dataset.power)));
   document.querySelectorAll('[data-close-view]').forEach(btn => btn.addEventListener('click', closeBrowserPreview));
-  app.browserToDesktopBtn.addEventListener('click', () => { closeBrowserPreview(); openDesktopSetup(); });
 
   app.desktopFrame.addEventListener('load', () => {
     syncGuacamoleAudioRoute();
