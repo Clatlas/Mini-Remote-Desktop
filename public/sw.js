@@ -1,4 +1,4 @@
-const CACHE = 'mrd-v0.5.1-powershell-console';
+const CACHE = 'mrd-v0.5.2-powershell-cleaner';
 const APP_SHELL = [
   '/', '/index.html',
   '/styles.css?v=0.5.0', '/iphone-safearea.css?v=0.5.0',
@@ -8,7 +8,15 @@ const APP_SHELL = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await Promise.all(APP_SHELL.map(async asset => {
+      const response = await fetch(asset, { cache: 'reload' });
+      if (!response.ok) throw new Error(`Could not refresh ${asset}: HTTP ${response.status}`);
+      await cache.put(asset, response);
+    }));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', event => {
@@ -19,8 +27,12 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/guacamole/') || url.pathname === '/update-result.json') return;
 
+  const request = url.pathname === '/extras.js'
+    ? new Request(event.request, { cache: 'reload' })
+    : event.request;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then(response => {
         const copy = response.clone();
         caches.open(CACHE).then(cache => cache.put(event.request, copy));
