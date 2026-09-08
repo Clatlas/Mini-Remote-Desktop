@@ -1,5 +1,5 @@
 const CACHE = 'mrd-v0.3.0-iphone-ui';
-const APP_SHELL = ['/', '/index.html', '/styles.css?v=0.3.0', '/app.js?v=0.3.0', '/manifest.webmanifest', '/icon.svg'];
+const APP_SHELL = ['/', '/index.html', '/styles.css?v=0.3.0', '/iphone-safearea.css?v=0.3.0', '/app.js?v=0.3.0', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
