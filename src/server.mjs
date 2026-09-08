@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { AudioRouter } from './audio-router.mjs';
 import { SecretTransport } from './secret-transport.mjs';
-import { BrowserEngine } from './browser-engine.mjs';
+import { ChromeManager } from './chrome-manager.mjs';
 import { AppCatalog } from './app-catalog.mjs';
 import { getGpuMetrics } from './system-metrics.mjs';
 import { installRuntimeLogging, readRuntimeLog } from './runtime-log.mjs';
@@ -49,7 +49,7 @@ let cpuPrevious = sampleCpu();
 let runtimeState = normalizeRuntimeState(await readRuntimeState());
 const audioRouter = new AudioRouter(ROOT);
 const secretTransport = new SecretTransport(ROOT);
-const browserEngine = new BrowserEngine(ROOT);
+const chromeManager = new ChromeManager(ROOT);
 const appCatalog = new AppCatalog(ROOT);
 
 const MIME = {
@@ -74,12 +74,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/config' && req.method === 'GET') {
-      const [secret, browser] = await Promise.all([
+      const [secret, chrome] = await Promise.all([
         secretTransport.refreshStatus(),
-        browserEngine.refreshStatus()
+        chromeManager.refreshStatus()
       ]);
       return sendJson(res, 200, {
-        version: '0.4.1',
+        version: '0.5.0',
         pcName: PC_NAME,
         powerControlsEnabled: ALLOW_POWER_CONTROLS,
         desktop: {
@@ -94,11 +94,14 @@ const server = http.createServer(async (req, res) => {
           }
         },
         browser: {
-          enabled: browser.chromeAvailable,
-          phase: browser.phase,
-          status: browser,
-          streamPath: '/api/browser/stream',
-          profile: 'dedicated-mrd-profile'
+          enabled: chrome.chromeAvailable,
+          transport: 'windows-chrome-window',
+          modes: ['normal', 'incognito'],
+          defaultMode: 'incognito',
+          profile: 'existing-chrome-profile',
+          singleton: true,
+          silentLaunch: true,
+          status: chrome
         },
         audio: {
           destinations: ['desktop', 'mobile', 'both', 'muted'],
@@ -127,27 +130,19 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, ...status });
     }
 
-    if (url.pathname === '/api/browser/status' && req.method === 'GET') {
-      return sendJson(res, 200, await browserEngine.refreshStatus());
+    if (url.pathname === '/api/chrome/status' && req.method === 'GET') {
+      return sendJson(res, 200, await chromeManager.refreshStatus());
     }
 
-    if (url.pathname === '/api/browser/session' && req.method === 'POST') {
-      try {
-        await browserEngine.start();
-        return sendJson(res, 200, {
-          ok: true,
-          transport: 'chromium-cdp-screencast',
-          streamPath: '/api/browser/stream',
-          status: browserEngine.status
-        });
-      } catch (error) {
-        return sendJson(res, 409, { ok: false, error: error.message, status: browserEngine.status });
-      }
+    if (url.pathname === '/api/chrome/open' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const result = await openManagedChrome(body?.mode);
+      return sendJson(res, result.ok ? 200 : 409, result);
     }
 
-    if (url.pathname === '/api/browser/stop' && req.method === 'POST') {
-      const status = await browserEngine.stop({ closeChrome: false });
-      return sendJson(res, 200, { ok: true, ...status });
+    if (url.pathname === '/api/chrome/close' && req.method === 'POST') {
+      const result = await chromeManager.close();
+      return sendJson(res, result.ok ? 200 : 409, result);
     }
 
     if (url.pathname === '/api/apps' && req.method === 'GET') {
@@ -183,7 +178,13 @@ const server = http.createServer(async (req, res) => {
 
     const appLaunchMatch = url.pathname.match(/^\/api\/apps\/([^/]+)\/launch$/);
     if (appLaunchMatch && req.method === 'POST') {
-      const result = await appCatalog.launch(decodeURIComponent(appLaunchMatch[1]));
+      const appId = decodeURIComponent(appLaunchMatch[1]);
+      if (appId === 'chrome') {
+        const body = await readJsonBody(req);
+        const result = await openManagedChrome(body?.mode);
+        return sendJson(res, result.ok ? 200 : 409, result);
+      }
+      const result = await appCatalog.launch(appId);
       if (result.ok && runtimeState.session.privacyMode === 'secret') scheduleSecretWindowMove();
       return sendJson(res, result.ok ? 200 : 400, result);
     }
@@ -255,10 +256,6 @@ server.on('upgrade', (req, socket, head) => {
     secretTransport.handleUpgrade('input', req, socket, head);
     return;
   }
-  if (url.pathname === '/api/browser/stream') {
-    browserEngine.handleUpgrade(req, socket, head);
-    return;
-  }
   if (!url.pathname.startsWith('/guacamole/')) {
     socket.destroy();
     return;
@@ -271,12 +268,12 @@ server.listen(PORT, HOST, async () => {
   console.log(`Guacamole proxy target: ${GUACAMOLE_ORIGIN.origin}`);
   console.log(`Power controls: ${ALLOW_POWER_CONTROLS ? 'ENABLED' : 'disabled'}`);
   console.log(`Audio router: ${audioRouter.available ? 'available' : 'not installed'}`);
-  const [secret, browser] = await Promise.all([
+  const [secret, chrome] = await Promise.all([
     secretTransport.refreshStatus(true),
-    browserEngine.refreshStatus()
+    chromeManager.refreshStatus()
   ]);
   console.log(`Secret transport: ${secret.ready ? 'ready' : secret.phase}`);
-  console.log(`Browser Engine: ${browser.chromeAvailable ? 'Chrome ready' : browser.phase}`);
+  console.log(`Managed Chrome: ${chrome.chromeAvailable ? (chrome.managed ? `ready · ${chrome.mode}` : 'ready') : 'not installed'}`);
 });
 
 setInterval(async () => {
@@ -360,6 +357,27 @@ async function prepareSession(body) {
     transport: 'rdp',
     desktopPath: await getDesktopPath()
   };
+}
+
+async function openManagedChrome(mode = 'incognito') {
+  const selectedMode = ['normal', 'incognito'].includes(String(mode || '').toLowerCase())
+    ? String(mode).toLowerCase()
+    : 'incognito';
+  let display = null;
+  if (runtimeState.session.privacyMode === 'secret') {
+    const secret = await secretTransport.refreshStatus(true);
+    if (!secret.ready) return { ok: false, error: secret.error || 'Secret transport is not ready for Chrome placement.' };
+    display = secret.display;
+  }
+  const result = await chromeManager.open({ mode: selectedMode, display });
+  if (result.ok) {
+    runtimeState.audio.activeMode = 'browser';
+    await writeRuntimeState(runtimeState);
+    const policy = getAudioState();
+    await audioRouter.apply(policy.effectiveDestination, { capture: true });
+    broadcast('audio', getAudioState());
+  }
+  return result;
 }
 
 async function handleAdminAction(action) {
@@ -753,7 +771,6 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  try { await browserEngine.shutdown(); } catch {}
   try { await secretTransport.shutdown(); } catch {}
   try { await audioRouter.shutdown(); } catch {}
   server.close(() => process.exit(0));

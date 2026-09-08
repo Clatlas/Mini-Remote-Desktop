@@ -48,6 +48,8 @@ for (const asset of shellAssets) {
 
 if (!sw.includes(`mrd-v${version}`)) fail(`service worker cache name does not include v${version}`);
 if (!server.includes(`version: '${version}'`) && !server.includes(`version: "${version}"`)) fail(`server /api/config version is not ${version}`);
+if (index.includes('/browser-engine.js') || server.includes('BrowserEngine')) fail('legacy Browser Engine remains wired into MRD');
+if (!index.includes('/chrome-window.js') || !server.includes('/api/chrome/open')) fail('managed Chrome window client/server wiring is missing');
 if (!/id\s*===\s*['"]update-mrd['"][\s\S]{0,120}launchWindowsApp\(id\)/.test(appCatalog)) {
   fail('AppCatalog does not delegate the allowlisted update-mrd action to launchWindowsApp');
 }

@@ -271,7 +271,7 @@ export class SecretTransport {
     if (!this.inputWorker || !this.display) return;
     let message;
     try { message = JSON.parse(data.toString('utf8')); } catch { return; }
-    const allowed = new Set(['move', 'down', 'up', 'wheel', 'text', 'key']);
+    const allowed = new Set(['move', 'down', 'up', 'wheel', 'relative-move', 'relative-wheel', 'button', 'text', 'key']);
     if (!allowed.has(message.type)) return;
 
     const payload = { type: message.type };
@@ -281,6 +281,15 @@ export class SecretTransport {
     }
     if (message.type === 'down' || message.type === 'up') payload.button = ['left', 'right', 'middle'].includes(message.button) ? message.button : 'left';
     if (message.type === 'wheel') payload.delta = Math.max(-1200, Math.min(1200, Math.round(Number(message.delta) || 0)));
+    if (message.type === 'relative-move') {
+      payload.dx = Math.max(-240, Math.min(240, Math.round(Number(message.dx) || 0)));
+      payload.dy = Math.max(-240, Math.min(240, Math.round(Number(message.dy) || 0)));
+    }
+    if (message.type === 'relative-wheel') payload.delta = Math.max(-1200, Math.min(1200, Math.round(Number(message.delta) || 0)));
+    if (message.type === 'button') {
+      payload.button = ['left', 'right', 'middle'].includes(message.button) ? message.button : 'left';
+      payload.down = Boolean(message.down);
+    }
     if (message.type === 'text') payload.text = String(message.text || '').slice(0, 512);
     if (message.type === 'key') payload.key = String(message.key || '').slice(0, 32);
 

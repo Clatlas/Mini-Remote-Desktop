@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="MRD" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icon.svg" />
-  <link rel="stylesheet" href="/styles.css?v=0.4.1" />
-  <link rel="stylesheet" href="/iphone-safearea.css?v=0.4.1" />
+  <link rel="stylesheet" href="/styles.css?v=0.5.0" />
+  <link rel="stylesheet" href="/iphone-safearea.css?v=0.5.0" />
   <title>Mini Remote Desktop</title>
 </head>
 <body>
@@ -54,7 +54,7 @@
         </button>
         <button class="primary-launch-card" id="browserBtn">
           <span class="launch-icon">◎</span>
-          <span class="launch-copy"><strong>Browser Engine</strong><small>PC-powered mobile Chromium</small></span>
+          <span class="launch-copy"><strong>Google Chrome</strong><small>Actual Chrome · Normal or Incognito</small></span>
           <span class="chevron">›</span>
         </button>
       </div>
@@ -76,13 +76,13 @@
   <section class="view-layer" id="connectView" hidden>
     <header class="screen-topbar">
       <button class="round-button back" id="connectBackBtn" aria-label="Back to dashboard">‹</button>
-      <div class="screen-heading"><strong>Desktop</strong><small>Connection setup</small></div>
+      <div class="screen-heading"><strong id="connectHeadingTitle">Desktop</strong><small id="connectHeadingSubtitle">Connection setup</small></div>
       <span class="toolbar-spacer" aria-hidden="true"></span>
     </header>
     <div class="screen-scroll connect-scroll">
       <section class="connect-hero">
-        <div class="connect-glyph">▣</div>
-        <div><div class="eyebrow">REMOTE WINDOWS</div><h2>Choose privacy first</h2><p>Your privacy mode is fixed for this connection.</p></div>
+        <div class="connect-glyph" id="connectHeroGlyph">▣</div>
+        <div><div class="eyebrow" id="connectHeroEyebrow">REMOTE WINDOWS</div><h2 id="connectHeroTitle">Choose privacy first</h2><p id="connectHeroText">Your privacy mode is fixed for this connection.</p></div>
       </section>
 
       <section class="connect-card">
@@ -94,6 +94,18 @@
         <div class="privacy-detail" id="privacyDetail" data-mode="not-secret">
           <div class="privacy-detail-icon" id="privacyDetailIcon">◆</div>
           <div><strong id="privacyDetailTitle">Not Secret</strong><p id="privacyNote">Physical console locks while connected. Uses the proven RDP transport.</p></div>
+        </div>
+      </section>
+
+      <section class="connect-card" id="browserModeCard" hidden>
+        <div class="field-label">Chrome window</div>
+        <div class="segmented-control" role="radiogroup" aria-label="Chrome window mode">
+          <button type="button" data-browser-mode="normal" role="radio" aria-checked="false"><span>Normal</span></button>
+          <button type="button" data-browser-mode="incognito" role="radio" aria-checked="true" class="selected"><span>Incognito</span></button>
+        </div>
+        <div class="privacy-detail" data-mode="chrome">
+          <div class="privacy-detail-icon">◎</div>
+          <div><strong id="browserModeDetailTitle">Incognito</strong><p id="browserModeDetailText">Uses your existing Chrome profile for bookmarks and saved passwords, while website cookies remain private to this Incognito session.</p></div>
         </div>
       </section>
 
@@ -137,7 +149,7 @@
 
           <div class="hub-section-title"><h3>Open</h3><span>Choose a destination</span></div>
           <div class="command-grid">
-            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Browser</strong><small>Mobile Browser Engine</small></span></button>
+            <button class="command-card featured" id="commandBrowser"><span class="command-icon">◎</span><span><strong>Chrome</strong><small>Normal or Incognito window</small></span></button>
             <button class="command-card" id="commandApps"><span class="command-icon">▦</span><span><strong>Apps</strong><small>Pinned Windows apps</small></span></button>
             <button class="command-card" id="commandDesktop"><span class="command-icon">▣</span><span><strong>Full Desktop</strong><small>Complete Windows view</small></span></button>
             <button class="command-card" id="commandAdmin"><span class="command-icon">⚙</span><span><strong>MRD Admin</strong><small>Host & service tools</small></span></button>
@@ -186,21 +198,19 @@
     </nav>
   </section>
 
-  <section class="view-layer browser-layer" id="browserView" hidden>
-    <header class="screen-topbar">
-      <button class="round-button back" data-close-view="browser" aria-label="Back">‹</button>
-      <div class="screen-heading"><strong>Browser Engine</strong><small>PC-powered · mobile viewport</small></div>
-      <button class="toolbar-pill" id="browserAudioBtn"><span class="toolbar-pill-icon">◖</span><strong id="browserAudioLabel">Mobile</strong></button>
-    </header>
-    <div class="browser-preview">
-      <div class="browser-preview-card">
-        <div class="browser-mark">◎</div>
-        <div class="eyebrow">PC-POWERED BROWSER</div>
-        <h2>Starting Browser Engine</h2>
-        <p>MRD is preparing its dedicated mobile Chromium session.</p>
+  <dialog id="browserModeDialog" class="sheet-dialog">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><div><div class="eyebrow">GOOGLE CHROME</div><h2>Open Chrome</h2></div><button type="button" id="browserModeCloseBtn" class="round-button subtle" aria-label="Close">×</button></div>
+      <p>MRD keeps one managed Chrome window. Opening the same mode focuses it; changing modes replaces it.</p>
+      <div class="segmented-control" role="radiogroup" aria-label="Chrome window mode">
+        <button type="button" data-browser-mode="normal" role="radio" aria-checked="false"><span>Normal</span></button>
+        <button type="button" data-browser-mode="incognito" role="radio" aria-checked="true" class="selected"><span>Incognito</span></button>
       </div>
+      <p class="sheet-note" id="browserModeDialogNote">Incognito uses your existing Chrome profile foundation without inheriting normal website cookies.</p>
+      <button type="button" class="primary-cta" id="browserModeOpenBtn"><span>Open Chrome</span><span>›</span></button>
     </div>
-  </section>
+  </dialog>
 
   <dialog id="audioDialog" class="sheet-dialog">
     <form method="dialog" class="sheet-card">
@@ -228,10 +238,10 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=0.4.1" defer></script>
-  <script src="/browser-engine.js?v=0.4.1" defer></script>
-  <script src="/secret-client.js?v=0.4.1" defer></script>
-  <script src="/app-manager.js?v=0.4.1" defer></script>
-  <script src="/extras.js?v=0.4.1" defer></script>
+  <script src="/app.js?v=0.5.0" defer></script>
+  <script src="/chrome-window.js?v=0.5.0" defer></script>
+  <script src="/secret-client.js?v=0.5.0" defer></script>
+  <script src="/app-manager.js?v=0.5.0" defer></script>
+  <script src="/extras.js?v=0.5.0" defer></script>
 </body>
 </html>

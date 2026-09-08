@@ -1,13 +1,13 @@
 {
   "name": "mini-remote-desktop",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "Mini Remote Desktop (MRD): Tailscale-only iPhone PWA with RDP, Secret virtual-display transport, PC-powered mobile Chromium, app launcher, media controls, and host diagnostics.",
+  "description": "Mini Remote Desktop (MRD): Tailscale-only iPhone PWA with RDP, Secret virtual-display transport, managed Google Chrome windows, app launcher, and host diagnostics.",
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "PC_REMOTE_DEMO_STATE=onlineLocked node --watch src/server.mjs",
-    "check:syntax": "node --check src/server.mjs && node --check src/audio-router.mjs && node --check src/secret-transport.mjs && node --check src/browser-engine.mjs && node --check src/app-catalog.mjs && node --check src/system-metrics.mjs && node --check src/runtime-log.mjs && node --check src/windows-apps.mjs && node --check public/app.js && node --check public/browser-engine.js && node --check public/secret-client.js && node --check public/app-manager.js && node --check public/extras.js && node --check public/sw.js && node --check scripts/audit-static.mjs && node --check scripts/smoke-server.mjs",
+    "check:syntax": "node --check src/server.mjs && node --check src/audio-router.mjs && node --check src/secret-transport.mjs && node --check src/chrome-manager.mjs && node --check src/app-catalog.mjs && node --check src/system-metrics.mjs && node --check src/runtime-log.mjs && node --check src/windows-apps.mjs && node --check public/app.js && node --check public/chrome-window.js && node --check public/secret-client.js && node --check public/app-manager.js && node --check public/extras.js && node --check public/sw.js && node --check scripts/audit-static.mjs && node --check scripts/smoke-server.mjs",
     "check:static": "node scripts/audit-static.mjs",
     "check:smoke": "node scripts/smoke-server.mjs",
     "check": "npm run check:syntax && npm run check:static && npm run check:smoke"

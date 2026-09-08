@@ -54,6 +54,8 @@ try {
   const config = await getJson('/api/config');
   assert(config.version === pkg.version, `Expected config version ${pkg.version}, got ${config.version}`);
   assert(config.desktop?.enabled === true, 'Desktop must be enabled');
+  assert(Array.isArray(config.browser?.modes) && config.browser.modes.includes('incognito') && config.browser.modes.includes('normal'), 'Chrome modes missing');
+  assert(config.browser?.transport === 'windows-chrome-window', 'Managed Chrome transport missing');
   assert(Array.isArray(config.audio?.destinations) && config.audio.destinations.includes('mobile'), 'Audio destinations missing mobile');
 
   const status = await getJson('/api/status');
@@ -82,7 +84,8 @@ try {
   const home = await fetch(base + '/', { cache: 'no-store' });
   const html = await home.text();
   assert(home.ok && html.includes('Mini Remote Desktop'), 'PWA index did not serve');
-  assert(html.includes(`/browser-engine.js?v=${pkg.version}`), 'Browser Engine client version mismatch');
+  assert(html.includes(`/chrome-window.js?v=${pkg.version}`), 'Managed Chrome client version mismatch');
+  assert(!html.includes('/browser-engine.js'), 'Legacy Browser Engine client should not be loaded');
 
   console.log(`MRD server smoke test passed for v${pkg.version}.`);
 } finally {

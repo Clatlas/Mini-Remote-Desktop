@@ -279,25 +279,26 @@ if (Test-Path $audioHelper) {
     catch { Add-Result 'MRD Audio Router' 'FAIL' $_.Exception.Message }
 } else { Add-Result 'MRD Audio Router' 'WARN' 'Native audio helper is not installed.' $false }
 
-# Browser Engine prerequisites and optional deep start/stop
-try {
-    $chrome = Find-Chrome
-    if ($chrome) { Add-Result 'Google Chrome' 'PASS' $chrome }
-    else { Add-Result 'Google Chrome' 'FAIL' 'Chrome executable was not found.' }
-}
-catch { Add-Result 'Google Chrome' 'FAIL' $_.Exception.Message }
+# Managed Chrome prerequisites and optional deep open/close
+$chrome = Find-Chrome
+if ($chrome) { Add-Result 'Google Chrome' 'PASS' $chrome }
+else { Add-Result 'Google Chrome' 'FAIL' 'Chrome executable was not found.' }
 
-$browserStatus = Try-Json "$BaseUrl/api/browser/status"
-if ($browserStatus -and $browserStatus.chromeAvailable) {
-    Add-Result 'Browser Engine status' 'PASS' ("phase={0}; Chrome available" -f $browserStatus.phase)
-} else { Add-Result 'Browser Engine status' 'FAIL' 'Browser Engine does not report Chrome available.' }
+$chromeStatus = Try-Json "$BaseUrl/api/chrome/status"
+if ($chromeStatus -and $chromeStatus.chromeAvailable) {
+    Add-Result 'Managed Chrome status' 'PASS' ("managed={0}; mode={1}; profile={2}" -f $chromeStatus.managed, $chromeStatus.mode, $chromeStatus.profileDirectory)
+} else { Add-Result 'Managed Chrome status' 'FAIL' 'Managed Chrome controller does not report Chrome available.' }
 
-if ($Deep -and $browserStatus -and $browserStatus.chromeAvailable) {
-    $browserStart = Try-Json "$BaseUrl/api/browser/session" 'POST' @{}
-    if ($browserStart -and $browserStart.ok) {
-        Add-Result 'Browser Engine deep start' 'PASS' ("transport={0}" -f $browserStart.transport)
-        $null = Try-Json "$BaseUrl/api/browser/stop" 'POST' @{}
-    } else { Add-Result 'Browser Engine deep start' 'FAIL' 'POST /api/browser/session failed.' }
+if ($Deep -and $chromeStatus -and $chromeStatus.chromeAvailable) {
+    $chromeStart = Try-Json "$BaseUrl/api/chrome/open" 'POST' @{ mode = 'incognito' }
+    if ($chromeStart -and $chromeStart.ok) {
+        Add-Result 'Managed Chrome deep open' 'PASS' ("action={0}; mode={1}" -f $chromeStart.action, $chromeStart.mode)
+        $chromeAgain = Try-Json "$BaseUrl/api/chrome/open" 'POST' @{ mode = 'incognito' }
+        if ($chromeAgain -and $chromeAgain.ok -and $chromeAgain.action -eq 'focused') {
+            Add-Result 'Managed Chrome singleton' 'PASS' 'Second open focused the existing MRD Chrome window.'
+        } else { Add-Result 'Managed Chrome singleton' 'FAIL' 'Second open did not focus the existing managed Chrome window.' }
+        $null = Try-Json "$BaseUrl/api/chrome/close" 'POST' @{}
+    } else { Add-Result 'Managed Chrome deep open' 'FAIL' 'POST /api/chrome/open failed.' }
 }
 
 # Secret prerequisites and optional deep start/stop

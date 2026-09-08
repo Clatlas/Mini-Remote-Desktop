@@ -94,12 +94,12 @@
     const dashboard = $('browserBtn');
     if (dashboard) {
       const small = dashboard.querySelector('small');
-      if (small) small.textContent = 'PC-powered mobile Chromium';
+      if (small) small.textContent = 'Actual Chrome · Normal or Incognito';
     }
     const command = $('commandBrowser');
     if (command) {
       const small = command.querySelector('small');
-      if (small) small.textContent = 'Mobile Browser Engine';
+      if (small) small.textContent = 'Normal or Incognito window';
     }
   }
 })();

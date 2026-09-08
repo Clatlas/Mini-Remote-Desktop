@@ -16,7 +16,6 @@ const app = {
   commandBrowser: $('commandBrowser'), commandApps: $('commandApps'), commandDesktop: $('commandDesktop'), commandAdmin: $('commandAdmin'), commandUpdate: $('commandUpdate'), disconnectBtn: $('disconnectBtn'),
   surfaceDock: $('surfaceDock'), dockCommandsBtn: $('dockCommandsBtn'), dockKeyboardBtn: $('dockKeyboardBtn'), dockAudioBtn: $('dockAudioBtn'), dockAudioLabel: $('dockAudioLabel'),
   dockInputBtn: $('dockInputBtn'), dockInputIcon: $('dockInputIcon'), dockInputLabel: $('dockInputLabel'), dockDisconnectBtn: $('dockDisconnectBtn'),
-  browserView: $('browserView'), browserAudioBtn: $('browserAudioBtn'), browserAudioLabel: $('browserAudioLabel'),
   audioDialog: $('audioDialog'), audioDialogTitle: $('audioDialogTitle'), audioRoutingNote: $('audioRoutingNote'),
   confirmDialog: $('confirmDialog'), confirmGlyph: $('confirmGlyph'), confirmTitle: $('confirmTitle'), confirmText: $('confirmText'), confirmAction: $('confirmAction'),
   toast: $('toast')
@@ -39,6 +38,7 @@ let sessionActive = false;
 let activeSurface = null;
 let keyboardOpen = false;
 let inputMode = localStorage.getItem('mrdInputMode') === 'pointer' ? 'pointer' : 'touch';
+let guacNativeTouchSupport = null;
 let guacReadyTimer = null;
 let guacAudioObserver = null;
 let pendingConfirm = null;
@@ -87,7 +87,6 @@ function bindUi() {
   app.surfaceAudioBtn.addEventListener('click', () => openAudioDialog('desktop'));
   app.appsAudioBtn.addEventListener('click', () => openAudioDialog('desktop'));
   app.adminAudioBtn.addEventListener('click', () => openAudioDialog('desktop'));
-  app.browserAudioBtn.addEventListener('click', () => openAudioDialog('browser'));
   app.dockAudioBtn.addEventListener('click', () => openAudioDialog('desktop'));
   document.querySelectorAll('[data-audio-destination]').forEach(btn => btn.addEventListener('click', () => chooseAudioDestination(btn.dataset.audioDestination)));
 
@@ -111,7 +110,6 @@ function bindUi() {
 
   document.querySelectorAll('[data-admin-action]').forEach(btn => btn.addEventListener('click', () => runAdminAction(btn.dataset.adminAction, btn)));
   document.querySelectorAll('[data-power]').forEach(btn => btn.addEventListener('click', () => requestPower(btn.dataset.power)));
-  document.querySelectorAll('[data-close-view]').forEach(btn => btn.addEventListener('click', closeBrowserPreview));
 
   app.desktopFrame.addEventListener('load', () => {
     syncGuacamoleAudioRoute();
@@ -274,7 +272,15 @@ function probeGuacClientReady() {
     injectGuacBridgeStyles(doc);
     updateGuacScope(scope, () => {
       scope.menu.inputMethod = 'text';
-      scope.menu.emulateAbsoluteMouse = inputMode === 'touch';
+      const reported = Number(scope.client?.multiTouchSupport || 0);
+      if (reported > 0) guacNativeTouchSupport = reported;
+      if (inputMode === 'pointer') {
+        if (scope.client) scope.client.multiTouchSupport = 0;
+        scope.menu.emulateAbsoluteMouse = false;
+      } else {
+        if (scope.client && guacNativeTouchSupport != null) scope.client.multiTouchSupport = guacNativeTouchSupport;
+        scope.menu.emulateAbsoluteMouse = true;
+      }
       if ('shown' in scope.menu) scope.menu.shown = false;
     });
     return Boolean(doc.querySelector('.text-input textarea.target'));
@@ -349,7 +355,7 @@ function toggleInputMode() {
   localStorage.setItem('mrdInputMode', inputMode);
   renderInputMode();
   applyGuacInputMode();
-  showToast(inputMode === 'touch' ? 'Direct touch input' : 'Precision pointer input');
+  showToast(inputMode === 'touch' ? 'Direct touch input' : 'Trackpad pointer input');
 }
 
 function renderInputMode() {
@@ -364,8 +370,16 @@ function applyGuacInputMode() {
   const scope = getGuacClientScope();
   if (!scope) return;
   updateGuacScope(scope, () => {
-    scope.menu.emulateAbsoluteMouse = inputMode === 'touch';
     scope.menu.inputMethod = 'text';
+    const reported = Number(scope.client?.multiTouchSupport || 0);
+    if (reported > 0) guacNativeTouchSupport = reported;
+    if (inputMode === 'pointer') {
+      if (scope.client) scope.client.multiTouchSupport = 0;
+      scope.menu.emulateAbsoluteMouse = false;
+    } else {
+      if (scope.client && guacNativeTouchSupport != null) scope.client.multiTouchSupport = guacNativeTouchSupport;
+      scope.menu.emulateAbsoluteMouse = true;
+    }
     if ('shown' in scope.menu) scope.menu.shown = false;
   });
 }
@@ -539,25 +553,13 @@ async function disconnectDesktopSession() {
   document.body.style.overflow = '';
 }
 
-function openBrowserPreview() {
-  app.browserView.hidden = false;
-  const destination = audioState.browserMode || 'mobile';
-  if (destination === 'mobile' || destination === 'both') primeMobileAudio();
-  void setActiveAudioMode('browser');
-  document.body.style.overflow = 'hidden';
-}
-
-function closeBrowserPreview() {
-  app.browserView.hidden = true;
-  void setActiveAudioMode('none');
-  stopMobileAudioStream();
-  document.body.style.overflow = '';
-}
 
 async function refreshAudio() {
   try { audioState = await fetchJson('/api/audio'); } catch {}
   renderAudioState();
 }
+
+window.MRDAudio = { open: mode => openAudioDialog(mode) };
 
 function openAudioDialog(mode) {
   audioDialogMode = mode;
@@ -605,7 +607,12 @@ function renderAudioState() {
   app.appsAudioLabel.textContent = desktopLabel;
   app.adminAudioLabel.textContent = desktopLabel;
   app.dockAudioLabel.textContent = desktopLabel;
-  app.browserAudioLabel.textContent = audioLabels[browserDestination] || 'Mobile';
+  const chromeSurface = document.body.classList.contains('mrd-chrome-surface');
+  if (chromeSurface) {
+    const browserLabel = audioLabels[browserDestination] || 'Mobile';
+    app.surfaceAudioLabel.textContent = browserLabel;
+    app.dockAudioLabel.textContent = browserLabel;
+  }
 
   const selected = audioDialogMode === 'desktop' ? desktopDestination : browserDestination;
   document.querySelectorAll('[data-audio-destination]').forEach(btn => {

@@ -7,6 +7,8 @@
     frameUrl: null,
     inputMode: localStorage.getItem('mrdInputMode') === 'pointer' ? 'pointer' : 'touch',
     pointer: null,
+    pointers: new Map(),
+    pointerGesture: null,
     catalog: null,
     audio: { context:null, socket:null, nextTime:0, format:{ sampleRate:48000, channels:2 } }
   };
@@ -94,7 +96,7 @@
       state.inputMode = state.inputMode === 'touch' ? 'pointer' : 'touch';
       localStorage.setItem('mrdInputMode', state.inputMode);
       renderSecretInputMode();
-      toast(state.inputMode === 'touch' ? 'Direct touch input' : 'Precision pointer input');
+      toast(state.inputMode === 'touch' ? 'Direct touch input' : 'Trackpad pointer input');
     }, true);
 
     document.querySelectorAll('[data-audio-destination]').forEach(button => {
@@ -327,39 +329,120 @@
     event.preventDefault();
     frame.setPointerCapture?.(event.pointerId);
     const p = pointFromEvent(event);
-    state.pointer = { id:event.pointerId, startX:event.clientX, startY:event.clientY, lastY:event.clientY, moved:false, p };
-    if (state.inputMode === 'pointer') sendInput({ type:'down', button:event.button === 2 ? 'right' : 'left', ...p });
-  }
 
-  function onPointerMove(event) {
-    if (!state.active || !state.ready || !state.pointer || state.pointer.id !== event.pointerId) return;
-    event.preventDefault();
-    const p = pointFromEvent(event);
-    if (state.inputMode === 'pointer') {
-      sendInput({ type:'move', ...p });
+    if (state.inputMode === 'touch') {
+      state.pointer = { id:event.pointerId, startX:event.clientX, startY:event.clientY, lastY:event.clientY, moved:false, p };
       return;
     }
 
-    const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY);
-    if (distance > 8) state.pointer.moved = true;
-    if (state.pointer.moved) {
-      const dy = state.pointer.lastY - event.clientY;
-      if (Math.abs(dy) >= 3) sendInput({ type:'wheel', delta:Math.round(dy * 6), ...p });
-      state.pointer.lastY = event.clientY;
+    const now = performance.now();
+    state.pointers.set(event.pointerId, {
+      id:event.pointerId,
+      startX:event.clientX, startY:event.clientY,
+      lastX:event.clientX, lastY:event.clientY,
+      downAt:now
+    });
+    if (!state.pointerGesture) state.pointerGesture = { startedAt:now, twoFinger:false, moved:false, dragging:false, rightClicked:false, lastCentroid:null };
+    if (state.pointers.size >= 2) {
+      state.pointerGesture.twoFinger = true;
+      state.pointerGesture.lastCentroid = pointerCentroid();
+    }
+  }
+
+  function onPointerMove(event) {
+    if (!state.active || !state.ready) return;
+    event.preventDefault();
+
+    if (state.inputMode === 'touch') {
+      if (!state.pointer || state.pointer.id !== event.pointerId) return;
+      const p = pointFromEvent(event);
+      const distance = Math.hypot(event.clientX - state.pointer.startX, event.clientY - state.pointer.startY);
+      if (distance > 8) state.pointer.moved = true;
+      if (state.pointer.moved) {
+        const dy = state.pointer.lastY - event.clientY;
+        if (Math.abs(dy) >= 3) sendInput({ type:'wheel', delta:Math.round(dy * 6), ...p });
+        state.pointer.lastY = event.clientY;
+      }
+      return;
+    }
+
+    const point = state.pointers.get(event.pointerId);
+    if (!point || !state.pointerGesture) return;
+    const dx = event.clientX - point.lastX;
+    const dy = event.clientY - point.lastY;
+    point.lastX = event.clientX;
+    point.lastY = event.clientY;
+
+    const total = Math.hypot(event.clientX - point.startX, event.clientY - point.startY);
+    if (total > 5) state.pointerGesture.moved = true;
+
+    if (state.pointers.size >= 2 || state.pointerGesture.twoFinger) {
+      const centroid = pointerCentroid();
+      const previous = state.pointerGesture.lastCentroid || centroid;
+      const scrollY = previous.y - centroid.y;
+      state.pointerGesture.lastCentroid = centroid;
+      if (Math.abs(scrollY) >= 1.5) {
+        state.pointerGesture.moved = true;
+        sendInput({ type:'relative-wheel', delta:Math.round(scrollY * 14) });
+      }
+      return;
+    }
+
+    const held = performance.now() - state.pointerGesture.startedAt;
+    if (!state.pointerGesture.dragging && held > 360 && total > 3) {
+      state.pointerGesture.dragging = true;
+      sendInput({ type:'button', button:'left', down:true });
+    }
+    if (Math.abs(dx) >= .35 || Math.abs(dy) >= .35) {
+      sendInput({ type:'relative-move', dx:Math.round(dx * 1.55), dy:Math.round(dy * 1.55) });
     }
   }
 
   function onPointerUp(event) {
-    if (!state.active || !state.pointer || state.pointer.id !== event.pointerId) return;
+    if (!state.active) return;
     event.preventDefault();
-    const p = pointFromEvent(event);
-    if (state.inputMode === 'pointer') sendInput({ type:'up', button:event.button === 2 ? 'right' : 'left', ...p });
-    else if (!state.pointer.moved) {
-      sendInput({ type:'move', ...p });
-      sendInput({ type:'down', button:'left', ...p });
-      sendInput({ type:'up', button:'left', ...p });
+
+    if (state.inputMode === 'touch') {
+      if (!state.pointer || state.pointer.id !== event.pointerId) return;
+      const p = pointFromEvent(event);
+      if (!state.pointer.moved) {
+        sendInput({ type:'move', ...p });
+        sendInput({ type:'down', button:'left', ...p });
+        sendInput({ type:'up', button:'left', ...p });
+      }
+      state.pointer = null;
+      return;
     }
-    state.pointer = null;
+
+    const gesture = state.pointerGesture;
+    const countBefore = state.pointers.size;
+    const point = state.pointers.get(event.pointerId);
+    if (!gesture || !point) return;
+
+    if (gesture.dragging) {
+      sendInput({ type:'button', button:'left', down:false });
+      gesture.dragging = false;
+    } else if (gesture.twoFinger && !gesture.moved && !gesture.rightClicked && countBefore >= 2) {
+      sendInput({ type:'button', button:'right', down:true });
+      sendInput({ type:'button', button:'right', down:false });
+      gesture.rightClicked = true;
+    } else if (!gesture.twoFinger && !gesture.moved) {
+      sendInput({ type:'button', button:'left', down:true });
+      sendInput({ type:'button', button:'left', down:false });
+    }
+
+    state.pointers.delete(event.pointerId);
+    if (state.pointers.size === 0) state.pointerGesture = null;
+    else state.pointerGesture.lastCentroid = pointerCentroid();
+  }
+
+  function pointerCentroid() {
+    const points = [...state.pointers.values()];
+    if (!points.length) return { x:0, y:0 };
+    return {
+      x: points.reduce((sum, point) => sum + point.lastX, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.lastY, 0) / points.length
+    };
   }
 
   function sendInput(message) {

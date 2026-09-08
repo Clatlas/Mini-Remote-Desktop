@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 const APPS = [
-  { id: 'chrome', name: 'Google Chrome', category: 'Internet', icon: '◎', description: 'Dedicated MRD Chrome window' },
+  { id: 'chrome', name: 'Google Chrome', category: 'Internet', icon: '◎', description: 'One MRD-managed Normal or Incognito window' },
   { id: 'explorer', name: 'File Explorer', category: 'Files', icon: '▣', description: 'Files, downloads, documents, and screenshots' },
   { id: 'terminal', name: 'Windows Terminal', category: 'Development', icon: '>_', description: 'Terminal with PowerShell fallback' },
   { id: 'task-manager', name: 'Task Manager', category: 'System', icon: '⌁', description: 'Processes, CPU, RAM, and GPU' },
@@ -80,6 +80,7 @@ export function getAppCatalog() {
 
 export async function launchWindowsApp(id) {
   if (id === 'update-mrd') return launchMrdUpdater();
+  if (id === 'chrome') return { ok: false, error: 'Chrome is controlled by the MRD managed Chrome window endpoint.' };
 
   const app = APPS.find(item => item.id === id);
   if (!app) return { ok: false, error: 'Unknown app.' };

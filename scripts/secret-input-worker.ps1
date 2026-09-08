@@ -40,6 +40,7 @@ public static class MrdInput {
     const uint INPUT_KEYBOARD = 1;
     const uint KEYEVENTF_KEYUP = 0x0002;
     const uint KEYEVENTF_UNICODE = 0x0004;
+    const uint MOUSEEVENTF_MOVE = 0x0001;
     const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     const uint MOUSEEVENTF_LEFTUP = 0x0004;
     const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
@@ -62,6 +63,14 @@ public static class MrdInput {
 
     public static void Move(int x, int y) {
         SetCursorPos(x, y);
+    }
+
+    public static void MoveRelative(int dx, int dy) {
+        INPUT input = new INPUT {
+            type = INPUT_MOUSE,
+            U = new InputUnion { mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE } }
+        };
+        SendInput(1, new [] { input }, Marshal.SizeOf(typeof(INPUT)));
     }
 
     public static void Button(string button, bool down) {
@@ -154,6 +163,15 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
             'wheel' {
                 [MrdInput]::Move([int]$msg.x, [int]$msg.y)
                 [MrdInput]::Wheel([int]$msg.delta)
+            }
+            'relative-move' {
+                [MrdInput]::MoveRelative([int]$msg.dx, [int]$msg.dy)
+            }
+            'relative-wheel' {
+                [MrdInput]::Wheel([int]$msg.delta)
+            }
+            'button' {
+                [MrdInput]::Button([string]$msg.button, [bool]$msg.down)
             }
             'text' {
                 [MrdInput]::Text([string]$msg.text)
