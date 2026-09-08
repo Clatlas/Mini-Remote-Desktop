@@ -1,13 +1,13 @@
 {
   "name": "mini-remote-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
-  "description": "Mini Remote Desktop (MRD): Tailscale-only PWA for private PC control, HTML5 RDP, and PC-powered browsing.",
+  "description": "Mini Remote Desktop (MRD): Tailscale-only PWA for private PC control, HTML5 RDP, and private virtual-display console streaming.",
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "PC_REMOTE_DEMO_STATE=onlineLocked node --watch src/server.mjs",
-    "check": "node --check src/server.mjs && node --check src/audio-router.mjs && node --check src/windows-apps.mjs && node --check public/app.js && node --check public/update-control.js && node --check public/sw.js"
+    "check": "node --check src/server.mjs && node --check src/audio-router.mjs && node --check src/secret-transport.mjs && node --check src/windows-apps.mjs && node --check public/app.js && node --check public/secret-client.js && node --check public/update-control.js && node --check public/sw.js"
   },
   "dependencies": {
     "ws": "^8.18.3"
