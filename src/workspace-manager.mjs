@@ -80,6 +80,12 @@ function formatWorkspaceDiagnostics(status) {
   const alternate = c.alternateProviders || {};
   const recommendation = c.recommendation || {};
 
+  const displayName = windows.displayName || windows.productName || 'Unknown';
+  const firmwareEffective = hardware.virtualizationFirmwareEnabled;
+  const firmwareRaw = hardware.virtualizationFirmwareRaw;
+  const slatEffective = hardware.slat;
+  const slatRaw = hardware.slatRaw;
+
   return [
     '=== MRD ISOLATED WORKSPACE ===',
     `Architecture : ${status.architecture}`,
@@ -87,15 +93,17 @@ function formatWorkspaceDiagnostics(status) {
     `Provider     : ${status.provider}`,
     `Readiness    : ${status.readiness}`,
     '',
-    `Windows      : ${windows.productName || 'Unknown'} [${windows.editionId || 'Unknown'}] build ${windows.build || '?'}`,
+    `Windows      : ${displayName} [${windows.editionId || 'Unknown'}] build ${windows.build || '?'}`,
     `CPU          : ${hardware.cpu || 'Unknown'}`,
-    `Firmware VT  : ${String(hardware.virtualizationFirmwareEnabled ?? 'Unknown')}`,
-    `SLAT         : ${String(hardware.slat ?? 'Unknown')}`,
+    `Firmware VT  : ${String(firmwareEffective ?? 'Unknown')}${firmwareRaw != null ? ` (raw: ${firmwareRaw})` : ''}`,
+    `SLAT         : ${String(slatEffective ?? 'Unknown')}${slatRaw != null ? ` (raw: ${slatRaw})` : ''}`,
     `Hypervisor   : ${String(hardware.hypervisorPresent ?? 'Unknown')}`,
     '',
     `Hyper-V      : ${hyperV.featureState || 'Unknown'}`,
     `HV cmdlets   : ${String(hyperV.cmdletsAvailable ?? 'Unknown')}`,
     `VMMS         : ${hyperV.vmmsStatus || 'Unknown'}`,
+    `HV operational: ${String(hyperV.operational ?? 'Unknown')}`,
+    `HV management : ${String(hyperV.managementAccessible ?? 'Unknown')}`,
     `VM Platform  : ${hyperV.virtualMachinePlatformState || 'Unknown'}`,
     `HV Platform  : ${hyperV.hypervisorPlatformState || 'Unknown'}`,
     '',
@@ -104,6 +112,7 @@ function formatWorkspaceDiagnostics(status) {
     `QEMU         : ${alternate.qemu || 'Not detected'}`,
     '',
     `Next         : ${recommendation.nextAction || status.nextAction}`,
+    hyperV.managementError ? `HV access note: ${hyperV.managementError}` : '',
     status.lastError ? `Error        : ${status.lastError}` : ''
-  ].filter(line => line !== null).join('\n');
+  ].filter(line => line !== null && line !== '').join('\n');
 }
