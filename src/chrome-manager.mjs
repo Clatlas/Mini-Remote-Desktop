@@ -44,7 +44,7 @@ export class ChromeManager {
       return this.status;
     }
 
-    this.chromePath ||= findChrome();
+    this.chromePath = findChrome();
     this.profileDirectory ||= await findProfileDirectory();
     await this.loadState();
 
@@ -53,7 +53,9 @@ export class ChromeManager {
       await this.saveState();
     }
 
-    if (!this.chromePath) this.lastError = 'Google Chrome was not found on this PC.';
+    if (!this.chromePath) {
+      this.lastError = 'Google Chrome was not found. Checked MRD_CHROME_EXE/MRD_CHROME, Program Files, Program Files (x86), and the current user LocalAppData.';
+    }
     return this.status;
   }
 
@@ -186,13 +188,19 @@ export class ChromeManager {
 }
 
 function findChrome() {
-  const override = process.env.MRD_CHROME_EXE;
+  const legacyOverride = process.env.MRD_CHROME;
+  const override = process.env.MRD_CHROME_EXE || legacyOverride;
   if (override && fssync.existsSync(override)) return override;
+
+  const localAppData = process.env.LOCALAPPDATA
+    || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Local') : null);
 
   const candidates = [
     process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe')
+    localAppData && path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
   ].filter(Boolean);
 
   return candidates.find(candidate => fssync.existsSync(candidate)) || null;
@@ -201,9 +209,12 @@ function findChrome() {
 async function findProfileDirectory() {
   const override = String(process.env.MRD_CHROME_PROFILE || '').trim();
   if (override) return override;
-  if (!process.env.LOCALAPPDATA) return null;
 
-  const localState = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data', 'Local State');
+  const localAppData = process.env.LOCALAPPDATA
+    || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Local') : null);
+  if (!localAppData) return 'Default';
+
+  const localState = path.join(localAppData, 'Google', 'Chrome', 'User Data', 'Local State');
   try {
     const value = JSON.parse(await fs.readFile(localState, 'utf8'));
     const lastUsed = String(value?.profile?.last_used || '').trim();
