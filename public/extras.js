@@ -217,8 +217,16 @@
   function cleanPowerShellStderr(value) {
     const text = String(value || '').trim();
     if (!text) return '';
-    if (text.startsWith('#< CLIXML') && /<Obj S="progress"/i.test(text) && !/<Obj S="(?!progress)[^"]+"/i.test(text)) return '';
-    return text;
+    const marker = '#< CLIXML';
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex < 0) return text;
+
+    const before = text.slice(0, markerIndex).trim();
+    const xml = text.slice(markerIndex + marker.length).trim();
+    const progressOnly = /<Objs\b/i.test(xml)
+      && /<Obj S="progress"/i.test(xml)
+      && !/<Obj S="(?!progress)[^"]+"/i.test(xml);
+    return progressOnly ? before : text;
   }
 
   function updateBrowserCopy() {
